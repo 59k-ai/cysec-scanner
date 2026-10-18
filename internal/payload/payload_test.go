@@ -178,6 +178,87 @@ func TestPopulatedRoundTrip(t *testing.T) {
 	}
 }
 
+// TestNormalizePopulatedAssetNestedSlicesNotNull is the WR-02 proof: a
+// POPULATED asset whose nested required containers are left nil (the latent
+// Phase-3 data-loss hazard) marshals every one of them to the empty literal
+// ("[]" / "{}"), never "null", AFTER Normalize(). The strict Pydantic model
+// 400-rejects a null for any non-Optional default_factory list/dict field, so
+// a null here would silently drop a populated asset at ingest.
+func TestNormalizePopulatedAssetNestedSlicesNotNull(t *testing.T) {
+	t.Parallel()
+
+	pl := NewEmpty("full", "cysec-scanner-engine/0.0.0")
+	pl.Assets = []AssetItem{{
+		ExternalID: "ws01",
+		Hostname:   "WS01",
+		IPAddress:  ptr("10.77.0.20"),
+		MACAddress: ptr("aa:bb:cc:dd:ee:ff"),
+		Classification: &ClassificationEvidence{
+			AssetType:  "server",
+			Confidence: 0.9,
+			RuleName:   "open_ports.smb_rdp",
+			// Evidence + SecurityFlags left nil on purpose — the hazard.
+		},
+		// Services + NetworkAliases left nil on purpose — the hazard.
+	}}
+	pl.PasswordPolicies = []PasswordPolicyItem{{
+		PolicyName: "default",
+		Scope:      "domain",
+		EvidenceDN: "DC=example,DC=local",
+		// AppliesTo left nil on purpose.
+	}}
+	pl.SoftwareInventory = []SoftwareInventoryItem{{
+		AssetExternalID: "ws01",
+		DisplayName:     "OpenSSL",
+		InstallSource:   "registry_64",
+		// SourceEvidence left nil on purpose.
+	}}
+	pl.TLSProbes = []TLSProbeItem{{
+		AssetExternalID: "tls:ws01:443",
+		Host:            "ws01",
+		Port:            443,
+		ProbedAt:        "2026-01-01T00:00:00Z",
+		// Results left nil on purpose.
+	}}
+
+	pl.Normalize()
+	got, err := json.Marshal(pl)
+	if err != nil {
+		t.Fatalf("marshal populated payload: %v", err)
+	}
+	s := string(got)
+
+	// Every required nested container must serialize to its empty literal.
+	for _, want := range []string{
+		`"services":[]`,
+		`"network_aliases":[]`,
+		`"evidence":{}`,
+		`"security_flags":[]`,
+		`"applies_to":[]`,
+		`"source_evidence":{}`,
+		`"results":[]`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("required nested container not serialized as empty literal %q; json=%s", want, s)
+		}
+	}
+
+	// And none of them may serialize to null (the strict-model 400 trap).
+	for _, bad := range []string{
+		`"services":null`,
+		`"network_aliases":null`,
+		`"evidence":null`,
+		`"security_flags":null`,
+		`"applies_to":null`,
+		`"source_evidence":null`,
+		`"results":null`,
+	} {
+		if strings.Contains(s, bad) {
+			t.Errorf("required nested container serialized to null %q; json=%s", bad, s)
+		}
+	}
+}
+
 func deref(p *string) string {
 	if p == nil {
 		return "<nil>"

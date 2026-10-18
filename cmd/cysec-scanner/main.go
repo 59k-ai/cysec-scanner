@@ -99,6 +99,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// Assemble the empty-ish strict-valid v5 payload and write it to the file.
 	// Real scanning stages will populate it from Phase 3 onward.
 	pl := payload.NewEmpty(string(fullPayloadType), collectorVersion)
+	// WR-02 — force every required container (top-level + nested) non-nil so a
+	// populated asset from a future scanning stage never marshals a required
+	// list/map to JSON "null", which the strict Pydantic model 400-rejects.
+	pl.Normalize()
 	data, err := json.MarshalIndent(pl, "", "  ")
 	if err != nil {
 		logger.Error("payload marshal failed", "err", err)

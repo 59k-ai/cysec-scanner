@@ -233,3 +233,80 @@ func NewEmpty(payloadType, collectorVersion string) Payload {
 		PayloadIDHash:       nil,
 	}
 }
+
+// Normalize forces every REQUIRED container — top-level and nested — to a
+// non-nil value so it marshals to the empty literal ("[]" / "{}") rather than
+// JSON "null" (WR-02). NewEmpty handles the top-level lists, but a populated
+// asset built from scratch in a later scanning stage (Phase 3+) can carry nil
+// nested slices/maps: AssetItem.Services / AssetItem.NetworkAliases,
+// ClassificationEvidence.Evidence / ClassificationEvidence.SecurityFlags,
+// PasswordPolicyItem.AppliesTo, SoftwareInventoryItem.SourceEvidence and
+// TLSProbeItem.Results all mirror a non-Optional default_factory field in
+// payload.py — the strict (extra="forbid") Pydantic model 400-rejects a null
+// for any of them, which would silently drop a populated asset's evidence.
+// Call this immediately before marshalling the wire payload.
+func (p *Payload) Normalize() {
+	// Top-level required lists (belt-and-braces: a Phase-3 stage may replace
+	// a whole slice with a nil one).
+	if p.Assets == nil {
+		p.Assets = []AssetItem{}
+	}
+	if p.Identities == nil {
+		p.Identities = []IdentityItem{}
+	}
+	if p.ServiceExposures == nil {
+		p.ServiceExposures = []ServiceExposureItem{}
+	}
+	if p.Vulnerabilities == nil {
+		p.Vulnerabilities = []VulnerabilityItem{}
+	}
+	if p.ConfigurationChecks == nil {
+		p.ConfigurationChecks = []ConfigurationCheckItem{}
+	}
+	if p.PasswordPolicies == nil {
+		p.PasswordPolicies = []PasswordPolicyItem{}
+	}
+	if p.SoftwareInventory == nil {
+		p.SoftwareInventory = []SoftwareInventoryItem{}
+	}
+	if p.MissingKbs == nil {
+		p.MissingKbs = []MissingKbItem{}
+	}
+	if p.TLSProbes == nil {
+		p.TLSProbes = []TLSProbeItem{}
+	}
+
+	// Nested required containers.
+	for i := range p.Assets {
+		a := &p.Assets[i]
+		if a.Services == nil {
+			a.Services = []ServiceItem{}
+		}
+		if a.NetworkAliases == nil {
+			a.NetworkAliases = []NetworkAliasItem{}
+		}
+		if a.Classification != nil {
+			if a.Classification.Evidence == nil {
+				a.Classification.Evidence = map[string]string{}
+			}
+			if a.Classification.SecurityFlags == nil {
+				a.Classification.SecurityFlags = []string{}
+			}
+		}
+	}
+	for i := range p.PasswordPolicies {
+		if p.PasswordPolicies[i].AppliesTo == nil {
+			p.PasswordPolicies[i].AppliesTo = []string{}
+		}
+	}
+	for i := range p.SoftwareInventory {
+		if p.SoftwareInventory[i].SourceEvidence == nil {
+			p.SoftwareInventory[i].SourceEvidence = map[string]string{}
+		}
+	}
+	for i := range p.TLSProbes {
+		if p.TLSProbes[i].Results == nil {
+			p.TLSProbes[i].Results = []TLSVersionResult{}
+		}
+	}
+}
