@@ -11,13 +11,47 @@ single machine-readable source of truth for which data files are embedded,
 their SHA-256 pins, their licenses, and their provenance. The human-readable
 notices below MUST stay consistent with that manifest.
 
+Dataset notices are emitted in a deterministic, stable order — sorted by the
+dataset's embedded data path (the `path` field in `data/allowlist.json`) — so
+regenerating this file never reorders existing entries. Each distinct dataset
+is listed separately even when two datasets share a license, so no required
+attribution is silently dropped by de-duplication.
+
 ## Bundled Datasets
+
+### IEEE OUI Public Listing (MA-L / MA-M / MA-S)
+
+- **Source:** https://standards-oui.ieee.org/
+- **Data paths:** `data/oui/oui.csv` (MA-L), `data/oui/mam.csv` (MA-M), `data/oui/oui36.csv` (MA-S)
+- **License:** `NOASSERTION` — IEEE non-assertion of copyright
+- **Redistribution sign-off:** [`data/oui/SIGNOFF.md`](./data/oui/SIGNOFF.md) (LIC-04)
+
+The IEEE OUI MAC-vendor snapshot (all three registry blocks MA-L, MA-M and
+MA-S) is redistributed under IEEE's published non-assertion of copyright. The
+IEEE Registration Authority states verbatim:
+
+> IEEE does not assert any copyright in the OUI Public Listing or attempt to
+> restrict distribution of the listing in any way. The IEEE Registration
+> Authority does, however, strongly encourage those who use the list to obtain
+> it directly from IEEE (and to update it on a regular basis) to ensure the
+> integrity of the information.
+
+Redistribution is therefore permitted and there is no mandatory attribution
+clause — only a non-binding encouragement to obtain the list directly from
+IEEE. This attribution is provided as a courtesy, not a license obligation.
+The pinned snapshot, its per-file SHA-256, the registry-block metadata, and the
+human-recorded redistribution sign-off are maintained in
+[`data/allowlist.json`](./data/allowlist.json) and
+[`data/oui/SIGNOFF.md`](./data/oui/SIGNOFF.md).
 
 ### Recog service fingerprints (Rapid7)
 
 - **Source:** https://github.com/rapid7/recog
+- **Data path:** `data/recog/ssh_banners.xml`
 - **License:** BSD-2-Clause
-- **Files:** `data/recog/*.xml`
+
+BSD-2-Clause requires retaining the copyright notice, the list of conditions,
+and the disclaimer below in redistributions:
 
 ```
 Copyright (c) 2014-2015, Rapid7
@@ -45,18 +79,14 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### IEEE OUI Public Listing (MA-L / MA-M / MA-S)
-
-_Added in a later plan (01-03)._ The IEEE OUI MAC-vendor snapshot is
-redistributed under IEEE's published non-assertion of copyright ("IEEE does
-not assert any copyright in the OUI Public Listing or attempt to restrict
-distribution of the listing in any way"). Attribution is provided as a
-courtesy; the pinned snapshot, its SHA-256, and the one-line redistribution
-sign-off land with plan 01-03.
-
 ## Go-Module Dependencies
 
-_Added in a later plan._ This repository currently vendors no runtime
-third-party Go modules; the dependency notices gathered by `go-licenses save`
-will be recorded here as engine code and its dependencies land (plan 01-02 and
-Phase 2+).
+This repository currently has no third-party Go runtime dependencies at this
+phase; the module graph is effectively stdlib-only (see `go.mod`). This section
+is therefore complete and correct for the empty-dependency case, not silently
+missing.
+
+As engine code and its dependencies land in later phases, the per-dependency
+notices gathered by `go-licenses save ./... --save_path=...` will be appended
+here so that every third-party Go module that ships in the binary carries its
+required notice.
