@@ -80,10 +80,15 @@ func Sweep(ctx context.Context, cidrs []string, caps capabilities.Capabilities, 
 	return live
 }
 
-// defaultPinger selects the live sweep path from the detected capabilities. In
-// this task it always returns the real pinger; Task 2 makes it return nil when
-// neither ICMP path is available so the sweep yields zero hosts gracefully.
+// defaultPinger selects the live sweep path from the detected capabilities.
+// When neither the unprivileged UDP-ICMP socket nor a system `ping` binary is
+// available, there is no viable liveness probe, so it returns nil and the sweep
+// yields zero hosts rather than erroring — the unprivileged default degrades
+// gracefully (ENG-06).
 func defaultPinger(caps capabilities.Capabilities) PingFunc {
+	if !caps.UnprivilegedICMP && !caps.SystemPing {
+		return nil
+	}
 	return pingHost
 }
 

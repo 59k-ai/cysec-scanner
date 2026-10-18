@@ -9,7 +9,9 @@
 package capabilities
 
 import (
+	"os"
 	"os/exec"
+	"runtime"
 
 	"golang.org/x/net/icmp"
 )
@@ -61,9 +63,23 @@ func detectSystemPing() bool {
 }
 
 // detectARPCache reports whether the kernel ARP/neighbour cache is readable on
-// this platform. Task 2 completes the per-GOOS probe; until then it is
-// conservatively false so MAC/vendor evidence is reported as "not observed"
-// rather than fabricated.
+// this platform — the source of L2 MAC evidence harvested after a sweep. On
+// Linux that is /proc/net/arp; elsewhere it is the `arp` binary used to parse
+// `arp -a`. A negative result degrades MAC/vendor to "not observed" (null),
+// never a crash.
 func detectARPCache() bool {
-	return false
+	switch runtime.GOOS {
+	case "linux":
+		f, err := os.Open("/proc/net/arp")
+		if err != nil {
+			return false
+		}
+		_ = f.Close()
+		return true
+	case "darwin", "windows", "freebsd", "openbsd", "netbsd":
+		_, err := exec.LookPath("arp")
+		return err == nil
+	default:
+		return false
+	}
 }

@@ -41,6 +41,10 @@ func Run(ctx context.Context, st *scanstate.ScanState, caps capabilities.Capabil
 		scope = netutil.LocalLANNetworks()
 	}
 
+	// The sweep selects its live path from caps; a fully-degraded host (no
+	// unprivileged ICMP socket and no system ping) yields zero hosts, not an
+	// error. The rest of Run tolerates an empty result and still produces a
+	// complete, Normalize-able payload (ENG-06 graceful degradation).
 	results := sweepHosts(ctx, scope, caps, nil)
 
 	// Collect live hosts into an internal set keyed by external_id. ip:<ip> is

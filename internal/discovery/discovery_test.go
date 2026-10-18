@@ -89,3 +89,25 @@ func TestTracerEndToEnd(t *testing.T) {
 		t.Fatalf("zero-live case produced %d assets, want 0", len(assets2))
 	}
 }
+
+// TestDetectDegrade proves ENG-06 graceful degradation through the REAL sweep:
+// with a fully-degraded capability set (no ICMP socket, no system ping) the
+// sweep has no viable probe and yields zero hosts, so Run returns nil and the
+// payload is still strict-valid v5 with assets == []. It deliberately does not
+// override sweepHosts, so the real netutil.Sweep + capability selection runs.
+func TestDetectDegrade(t *testing.T) {
+	if sweepHosts == nil {
+		t.Fatal("sweepHosts seam is nil")
+	}
+	st := scanstate.New("full", "engine/test")
+	// TEST-NET-1 scope is never actually probed: a nil capability set makes the
+	// pinger selection return no probe, so the sweep short-circuits to zero.
+	err := Run(context.Background(), st, capabilities.Capabilities{}, []string{"192.0.2.0/30"})
+	if err != nil {
+		t.Fatalf("fully-degraded Run returned %v, want nil", err)
+	}
+	assets := assertStrictValidV5(t, marshalToMap(t, st))
+	if len(assets) != 0 {
+		t.Fatalf("fully-degraded run produced %d assets, want 0", len(assets))
+	}
+}
