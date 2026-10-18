@@ -4,6 +4,7 @@
 package portscan
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -117,6 +118,53 @@ var iotVendors = []string{
 // trusting a broad-module vendor, so a dark host with such an OUI falls through.
 var broadModuleVendors = []string{"realtek", "mediatek", "shenzhen"}
 
+// insecureFlag is the flag name + severity raised for an open insecure-service
+// port.
+type insecureFlag struct {
+	flag     string
+	severity string
+}
+
+// insecureServicePorts maps an open port that exposes a plaintext/insecure service
+// to the security flag it raises. Telnet (23) is cleartext management and the most
+// serious; FTP (21) is cleartext file transfer; plain HTTP (80) is only
+// informational — and is suppressed entirely when 443 is also open (see
+// securityFlags), since that pairing is almost always an HTTP->HTTPS redirect
+// rather than an exposed insecure service.
+var insecureServicePorts = map[int]insecureFlag{
+	portTelnet: {"cleartext-management", "high"},
+	portFTP:    {"cleartext-ftp", "medium"},
+	portHTTP:   {"http-no-tls", "info"},
+}
+
+// securityFlags derives the "port:flag:severity" entries for every open insecure
+// service port, in deterministic ascending-port order. The HTTP (80) flag is
+// suppressed when HTTPS (443) is also open — that combination reads as a redirect
+// to TLS, not a bare insecure service. The result is always a non-nil slice (empty
+// when nothing insecure is open) so the required container never marshals to null.
+func securityFlags(openPorts []int) []string {
+	flags := []string{}
+	has443 := containsPort(openPorts, portHTTPS)
+
+	ports := make([]int, 0, len(insecureServicePorts))
+	for p := range insecureServicePorts {
+		ports = append(ports, p)
+	}
+	sort.Ints(ports)
+
+	for _, p := range ports {
+		if !containsPort(openPorts, p) {
+			continue
+		}
+		if p == portHTTP && has443 {
+			continue // HTTP->HTTPS redirect, not an exposed insecure service
+		}
+		f := insecureServicePorts[p]
+		flags = append(flags, fmt.Sprintf("%d:%s:%s", p, f.flag, f.severity))
+	}
+	return flags
+}
+
 // classifyInput bundles everything the classifier reads: the open ports, the
 // per-port banner text, the single aggregated product/OS hint, the OUI vendor (nil
 // when unknown), and the evidence discovery already recorded (so the classifier
@@ -166,7 +214,7 @@ var productHintVerdicts = map[string]hintVerdict{
 func classify(in classifyInput) verdict {
 	v := verdict{
 		Evidence:      map[string]string{},
-		SecurityFlags: []string{},
+		SecurityFlags: securityFlags(in.OpenPorts),
 	}
 
 	sig := portSignature(in.OpenPorts)
