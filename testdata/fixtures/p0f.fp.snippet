@@ -1,0 +1,5 @@
+; p0f.fp — passive OS fingerprinting db (GPL-2.0-or-later / LGPL-2.1, copyleft).
+; Author-written fixture lines in the p0f.fp format, NOT a redistribution.
+[tcp:request]
+label = s:unix:Linux:3.11 and newer
+sig = *:64:0:*:mss*20,10:mss,sok,ts,nop,ws:df,id+:0
