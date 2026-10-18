@@ -1,3 +1,6 @@
+// Copyright 2026 59k GmbH
+// SPDX-License-Identifier: Apache-2.0
+
 // Package oui resolves a MAC address to its registered organisation using the
 // embedded IEEE registry snapshot.
 //

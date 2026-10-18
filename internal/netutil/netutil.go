@@ -1,3 +1,6 @@
+// Copyright 2026 59k GmbH
+// SPDX-License-Identifier: Apache-2.0
+
 // Package netutil holds the low-level network primitives the discovery stage
 // orchestrates: local-subnet auto-detection, the bounded ICMP sweep with its
 // pro-bing -> system-ping fallback, and shape helpers for IP/MAC strings.

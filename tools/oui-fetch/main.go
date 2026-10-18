@@ -1,3 +1,6 @@
+// Copyright 2026 59k GmbH
+// SPDX-License-Identifier: Apache-2.0
+
 // Command oui-fetch refreshes the vendored IEEE OUI snapshot (MA-L/MA-M/MA-S)
 // and the SHA-256 pins recorded in data/allowlist.json. It is the engine of the
 // scheduled oui-refresh workflow (D-07): it GETs the three IEEE CSVs, compares

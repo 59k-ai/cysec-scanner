@@ -1,3 +1,6 @@
+// Copyright 2026 59k GmbH
+// SPDX-License-Identifier: Apache-2.0
+
 // Package governance enforces the cysec-scanner data-governance contract: the
 // allowlist (single source of truth for every embedded data file, verified
 // two-way by SHA-256) and the layered denylist (refuses contaminating

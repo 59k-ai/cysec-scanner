@@ -1,3 +1,6 @@
+// Copyright 2026 59k GmbH
+// SPDX-License-Identifier: Apache-2.0
+
 // Command cysec-scanner is the pure-Go evidence engine that runs behind the
 // closed Collector wrapper. This Phase-2 skeleton (D-04) is a real
 // compiled binary, not a mock: it runs the staged pipeline under one cancelable

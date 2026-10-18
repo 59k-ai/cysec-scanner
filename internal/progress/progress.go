@@ -1,3 +1,6 @@
+// Copyright 2026 59k GmbH
+// SPDX-License-Identifier: Apache-2.0
+
 // Package progress emits NDJSON ProgressEvent objects on an output stream,
 // mirroring the cysec.watch Collector-side ProgressEvent wire contract.
 //

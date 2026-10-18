@@ -1,3 +1,6 @@
+// Copyright 2026 59k GmbH
+// SPDX-License-Identifier: Apache-2.0
+
 package netutil
 
 // mdns.go hand-rolls a one-packet multicast-DNS resolver (no external

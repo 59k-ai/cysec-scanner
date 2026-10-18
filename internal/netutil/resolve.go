@@ -1,3 +1,6 @@
+// Copyright 2026 59k GmbH
+// SPDX-License-Identifier: Apache-2.0
+
 package netutil
 
 // resolve.go holds reverse-DNS hostname resolution plus the shared hostname

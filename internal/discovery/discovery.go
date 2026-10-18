@@ -1,3 +1,6 @@
+// Copyright 2026 59k GmbH
+// SPDX-License-Identifier: Apache-2.0
+
 // Package discovery is the pipeline's discovery stage (DISC-01): it resolves the
 // scan scope (explicit CIDRs or the auto-detected local subnet), ICMP-sweeps it
 // for live hosts, and turns each live host into a v5 payload.AssetItem written

@@ -1,3 +1,6 @@
+// Copyright 2026 59k GmbH
+// SPDX-License-Identifier: Apache-2.0
+
 // Package scannerdata embeds the governed data tree (datasets + the allowlist
 // manifest) into the binary at compile time.
 //

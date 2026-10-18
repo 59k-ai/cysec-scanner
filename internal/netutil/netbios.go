@@ -1,3 +1,6 @@
+// Copyright 2026 59k GmbH
+// SPDX-License-Identifier: Apache-2.0
+
 package netutil
 
 // netbios.go hand-rolls a NetBIOS NBSTAT node-status resolver (no external

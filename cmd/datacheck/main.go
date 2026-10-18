@@ -1,3 +1,6 @@
+// Copyright 2026 59k GmbH
+// SPDX-License-Identifier: Apache-2.0
+
 // Command datacheck is the standalone data-governance verifier. It enforces two
 // gates and exits non-zero if either is violated (the exit-code-as-contract the
 // GitHub Actions governance job relies on):

@@ -1,3 +1,6 @@
+// Copyright 2026 59k GmbH
+// SPDX-License-Identifier: Apache-2.0
+
 // Package payload is the Go-side hand-mirror of the cysec.watch Collector wire
 // schema at v5.
 //

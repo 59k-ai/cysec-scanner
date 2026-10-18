@@ -1,3 +1,6 @@
+// Copyright 2026 59k GmbH
+// SPDX-License-Identifier: Apache-2.0
+
 // Package scanstate holds the in-progress v5 payload that scan stages
 // contribute to as the pipeline runs.
 //

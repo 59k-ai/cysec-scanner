@@ -1,3 +1,6 @@
+// Copyright 2026 59k GmbH
+// SPDX-License-Identifier: Apache-2.0
+
 // Package pipeline is the staged scan runner skeleton (ENG-01): a fixed,
 // deterministic sequence of stages — discovery -> port -> fingerprint ->
 // authposture — executed under one cancelable context.Context threaded from

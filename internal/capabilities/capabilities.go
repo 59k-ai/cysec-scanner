@@ -1,3 +1,6 @@
+// Copyright 2026 59k GmbH
+// SPDX-License-Identifier: Apache-2.0
+
 // Package capabilities records, once at startup, what the host runtime permits
 // the unprivileged scan engine to do.
 //
