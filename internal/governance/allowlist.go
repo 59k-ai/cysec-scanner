@@ -12,12 +12,26 @@ import (
 	"io"
 	"io/fs"
 	"sort"
+	"strings"
 )
 
 // allowlistPath is the manifest location inside the embedded data FS. It is
 // skipped by the integrity walk (the manifest describes the data, it is not
 // itself an allowlisted dataset).
 const allowlistPath = "data/allowlist.json"
+
+// isGovernanceDoc reports whether an embedded path is a human-readable
+// governance/legal document rather than a dataset. The allowlist is the source
+// of truth for DATASETS (their SHA-256 pin, license, provenance); a Markdown
+// sign-off or README that happens to live under data/ (e.g. data/oui/SIGNOFF.md,
+// the LIC-04 redistribution sign-off) is documentation, not a dataset, and must
+// not be pinned — its content legitimately changes when a human records a
+// sign-off, which would otherwise force a coupled allowlist hash edit. These
+// docs are still content-scanned by the layered denylist (cmd/datacheck), so
+// excluding them from the pin walk opens no contamination hole.
+func isGovernanceDoc(p string) bool {
+	return strings.HasSuffix(p, ".md")
+}
 
 // Entry is one record in data/allowlist.json. Every embeddable data file has
 // exactly one Entry recording its integrity pin (SHA256), license, and
@@ -27,10 +41,20 @@ type Entry struct {
 	Path             string `json:"path"`
 	SHA256           string `json:"sha256"`
 	License          string `json:"license"`
+	LicenseNote      string `json:"license_note,omitempty"`
 	Copyright        string `json:"copyright,omitempty"`
 	ProvenanceURL    string `json:"provenance_url"`
 	UpstreamSnapshot string `json:"upstream_snapshot,omitempty"`
 	FetchDate        string `json:"fetch_date,omitempty"`
+
+	// RegistryBlock and PrefixBits describe an IEEE OUI registry assignment and
+	// are set only for the OUI datasets (D-08): the MAC-prefix is variable
+	// length — MA-L is a 24-bit prefix, MA-M 28-bit, MA-S 36-bit. Recording the
+	// prefix length here (rather than assuming a fixed 24-bit OUI) lets the
+	// Phase-3 lookup do a longest-prefix match across all three blocks. Empty
+	// for non-OUI datasets (Recog etc.).
+	RegistryBlock string `json:"registry_block,omitempty"`
+	PrefixBits    int    `json:"prefix_bits,omitempty"`
 }
 
 // manifest is the on-disk shape of data/allowlist.json.
@@ -102,7 +126,7 @@ func VerifyEmbeddedData(fsys fs.FS) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || p == allowlistPath {
+		if d.IsDir() || p == allowlistPath || isGovernanceDoc(p) {
 			return nil
 		}
 		got, err := hashFile(fsys, p)
