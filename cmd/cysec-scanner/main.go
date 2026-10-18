@@ -31,6 +31,7 @@ import (
 	"github.com/cysec-watch/cysec-scanner/internal/discovery"
 	"github.com/cysec-watch/cysec-scanner/internal/payload"
 	"github.com/cysec-watch/cysec-scanner/internal/pipeline"
+	"github.com/cysec-watch/cysec-scanner/internal/portscan"
 	"github.com/cysec-watch/cysec-scanner/internal/progress"
 	"github.com/cysec-watch/cysec-scanner/internal/scanstate"
 )
@@ -45,7 +46,7 @@ func main() {
 // cidrList is a repeatable --cidr flag accumulator.
 type cidrList []string
 
-func (c *cidrList) String() string  { return strings.Join(*c, ",") }
+func (c *cidrList) String() string { return strings.Join(*c, ",") }
 func (c *cidrList) Set(v string) error {
 	*c = append(*c, v)
 	return nil
@@ -62,9 +63,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 	payloadOut := fs.String("payload-out", "", "path to write the v5 payload JSON (required)")
 	var cidrs cidrList
 	fs.Var(&cidrs, "cidr", "scope CIDR to scan (repeatable); empty means auto-detect the local subnet")
+	timing := fs.String("timing", "polite", "scan timing tier: polite (default)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
+
+	// Resolve the port set: the curated default when no override is given (the
+	// --ports override flag is wired in a later task). The resolved set rides
+	// under the active timing tier's scan-wide PPS cap.
+	resolvedPorts := portscan.DefaultPortSet
 	if *payloadOut == "" {
 		logger.Error("missing required flag", "flag", "--payload-out")
 		return 2
@@ -98,7 +105,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		{Name: pipeline.StageDiscovery, Run: func(ctx context.Context) error {
 			return discovery.Run(ctx, st, caps, []string(cidrs))
 		}},
-		{Name: pipeline.StagePort, Run: func(context.Context) error { return nil }},
+		{Name: pipeline.StagePort, Run: func(ctx context.Context) error {
+			return portscan.Run(ctx, st, caps, portscan.Options{Tier: portscan.ResolveTier(*timing), Ports: resolvedPorts})
+		}},
 		{Name: pipeline.StageFingerprint, Run: func(context.Context) error { return nil }},
 		{Name: pipeline.StageAuthPosture, Run: func(context.Context) error { return nil }},
 	}

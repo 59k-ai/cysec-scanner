@@ -52,3 +52,32 @@ func (s *ScanState) Payload() payload.Payload {
 	snap.Assets = append([]payload.AssetItem(nil), s.pl.Assets...)
 	return snap
 }
+
+// Assets returns a snapshot copy of the accumulated asset slice under lock, so a
+// later scanning stage (port, fingerprint, authposture) can read the hosts the
+// discovery stage recorded without racing concurrent writers or aliasing the
+// internal slice. The copy is shallow: the AssetItem values are safe to inspect,
+// but writing enrichment back MUST go through UpdateAsset so the mutation is
+// applied under the same lock.
+func (s *ScanState) Assets() []payload.AssetItem {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]payload.AssetItem(nil), s.pl.Assets...)
+}
+
+// UpdateAsset locates the accumulated asset whose ExternalID matches and applies
+// fn to it in place under lock; it is a no-op when no asset matches. This is the
+// merge seam a later stage uses to enrich a discovered asset (add services,
+// merge a refined classification) without replacing the accumulator or touching
+// the pipeline control-flow package. fn runs while the lock is held, so it must
+// not call back into ScanState (which would deadlock).
+func (s *ScanState) UpdateAsset(externalID string, fn func(*payload.AssetItem)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.pl.Assets {
+		if s.pl.Assets[i].ExternalID == externalID {
+			fn(&s.pl.Assets[i])
+			return
+		}
+	}
+}
