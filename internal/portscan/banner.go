@@ -36,7 +36,11 @@ type bannerResult struct {
 // (including a deadline on a connected-but-silent port) collapses to an empty
 // result — it never raises and never blocks past the deadline.
 func grabBanner(ctx context.Context, conn net.Conn, host string, port int, tier Tier) bannerResult {
-	_ = ctx
+	// A TLS port gets a handshake peek over this same limited connection instead
+	// of a plaintext read — no second dial, so the connect stays under the limiter.
+	if tlsProbePorts[port] {
+		return tlsPeek(ctx, conn, host, tier)
+	}
 	if !bannerPorts[port] {
 		return bannerResult{}
 	}

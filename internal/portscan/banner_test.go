@@ -5,6 +5,13 @@ package portscan
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"math/big"
 	"net"
 	"strings"
 	"testing"
@@ -141,6 +148,101 @@ func TestBannerGrab(t *testing.T) {
 		case <-probed:
 			t.Fatal("a non-banner port must not send a probe")
 		case <-time.After(100 * time.Millisecond):
+		}
+	})
+}
+
+// selfSignedCert mints an in-memory self-signed leaf with the given CommonName —
+// exactly the kind of cert the TLS peek must read as evidence without validating.
+func selfSignedCert(t *testing.T, cn string) tls.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	tmpl := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: cn},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &tmpl, &tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create cert: %v", err)
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
+}
+
+// startTLSServer wraps a loopback listener in a TLS server presenting cert and
+// drives the server-side handshake on each accepted connection. A plain net.Dial
+// to the returned address yields a RAW conn the test hands to tlsPeek, which does
+// the client handshake — proving the peek needs no second dial of its own.
+func startTLSServer(t *testing.T, cert tls.Certificate) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	cfg := &tls.Config{Certificates: []tls.Certificate{cert}}
+	tlsLn := tls.NewListener(ln, cfg)
+	go func() {
+		for {
+			conn, err := tlsLn.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				if tc, ok := c.(*tls.Conn); ok {
+					_ = tc.Handshake()
+				}
+				_ = c.Close()
+			}(conn)
+		}
+	}()
+	return ln.Addr().String()
+}
+
+func TestTLSPeek(t *testing.T) {
+	ctx := context.Background()
+	tier := Tier{BannerTimeout: time.Second}
+
+	t.Run("reads version + CN despite no chain validation, no second dial", func(t *testing.T) {
+		addr := startTLSServer(t, selfSignedCert(t, "printer.local"))
+		got := tlsPeek(ctx, dialLoopback(t, addr), "printer.local", tier)
+		if !strings.Contains(got.Text, "CN=printer.local") {
+			t.Fatalf("Text = %q, want it to contain CN=printer.local", got.Text)
+		}
+		if !strings.HasPrefix(got.TLSVersion, "TLS") {
+			t.Fatalf("TLSVersion = %q, want a negotiated TLS version", got.TLSVersion)
+		}
+	})
+
+	t.Run("plaintext server on a TLS port fails handshake -> empty, not closed", func(t *testing.T) {
+		addr := startTCPServer(t, func(c net.Conn) {
+			_, _ = c.Write([]byte("not a tls record\r\n"))
+			_ = c.Close()
+		})
+		got := tlsPeek(ctx, dialLoopback(t, addr), "127.0.0.1", tier)
+		if got.Text != "" || got.TLSVersion != "" {
+			t.Fatalf("got %+v, want an empty result on a handshake failure", got)
+		}
+	})
+
+	t.Run("stalled handshake returns empty within the timeout", func(t *testing.T) {
+		addr := startTCPServer(t, func(c net.Conn) {
+			// Accept the TCP conn but never speak TLS — stall the ClientHello.
+			time.Sleep(3 * time.Second)
+			_ = c.Close()
+		})
+		shortTier := Tier{BannerTimeout: 300 * time.Millisecond}
+		start := time.Now()
+		got := tlsPeek(ctx, dialLoopback(t, addr), "127.0.0.1", shortTier)
+		if got.Text != "" || got.TLSVersion != "" {
+			t.Fatalf("got %+v, want empty on a stalled handshake", got)
+		}
+		if elapsed := time.Since(start); elapsed > time.Second {
+			t.Fatalf("peek took %s, want it bounded near the handshake timeout", elapsed)
 		}
 	})
 }
