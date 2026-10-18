@@ -13,9 +13,13 @@ import (
 	"crypto/x509/pkix"
 	"math/big"
 	"net"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cysec-watch/cysec-scanner/internal/capabilities"
+	"github.com/cysec-watch/cysec-scanner/internal/scanstate"
 )
 
 // startTCPServer starts a loopback TCP listener whose accepted connections are
@@ -245,4 +249,149 @@ func TestTLSPeek(t *testing.T) {
 			t.Fatalf("peek took %s, want it bounded near the handshake timeout", elapsed)
 		}
 	})
+}
+
+func strOrNil(p *string) string {
+	if p == nil {
+		return "<nil>"
+	}
+	return *p
+}
+
+func TestParseServiceIdentity(t *testing.T) {
+	cases := []struct {
+		name        string
+		banner      string
+		wantProduct string // "<nil>" means expect nil
+		wantVersion string
+	}{
+		{"ssh software and version split", "SSH-2.0-OpenSSH_9.6", "OpenSSH", "9.6"},
+		{"ssh software only, no interior separator", "SSH-2.0-Dropbear", "Dropbear", "<nil>"},
+		{"http server header product", "HTTP/1.0 200 OK\r\nServer: nginx/1.24.0\r\n", "nginx/1.24.0", "<nil>"},
+		{"no match yields nil pair", "random noise with no identity", "<nil>", "<nil>"},
+		{"empty banner yields nil pair", "", "<nil>", "<nil>"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			product, version := parseServiceIdentity(0, bannerResult{Text: tc.banner})
+			if strOrNil(product) != tc.wantProduct {
+				t.Errorf("product = %q, want %q", strOrNil(product), tc.wantProduct)
+			}
+			if strOrNil(version) != tc.wantVersion {
+				t.Errorf("version = %q, want %q", strOrNil(version), tc.wantVersion)
+			}
+		})
+	}
+}
+
+func TestBannerHints(t *testing.T) {
+	cases := []struct {
+		name        string
+		banner      string
+		wantProduct string
+		wantOS      string
+	}{
+		{"openssh implies linux", "SSH-2.0-OpenSSH_9.6", "", "linux"},
+		{"routeros implies a router", "HTTP/1.0 200 OK\r\nServer: Mikrotik RouterOS\r\n", "router", ""},
+		{"openwrt product hint", "<html><title>OpenWrt</title></html>", "openwrt", ""},
+		{"dvr implies a camera", "var g_dvr = 1; dvr console", "camera", ""},
+		{"iis implies windows", "HTTP/1.0 200 OK\r\nServer: Microsoft-IIS/10.0\r\n", "", "windows"},
+		{"nothing matches", "HTTP/1.0 200 OK\r\nServer: nginx/1.24.0\r\n", "", ""},
+		{"empty banner", "", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ph, oc := bannerHints(0, bannerResult{Text: tc.banner})
+			if ph != tc.wantProduct {
+				t.Errorf("productHint = %q, want %q", ph, tc.wantProduct)
+			}
+			if oc != tc.wantOS {
+				t.Errorf("osCue = %q, want %q", oc, tc.wantOS)
+			}
+		})
+	}
+}
+
+// TestRunServiceIdentityProvenanceEndToEnd drives the REAL portscan.Run against an
+// SSH-banner loopback fixture and proves the full dial -> grabBanner ->
+// parseServiceIdentity -> ServiceItem.Product -> serviceIdentityProvenance ->
+// Evidence flow: both the parsed product/version land on the ServiceItem AND the
+// already-wired (04-01) low-confidence provenance keys land on the classification
+// evidence map. portscan.go is NOT edited here — only this test file registers the
+// fixture's ephemeral port into the banner sets (restored in a defer).
+func TestRunServiceIdentityProvenanceEndToEnd(t *testing.T) {
+	addr := startTCPServer(t, func(c net.Conn) {
+		_, _ = c.Write([]byte("SSH-2.0-OpenSSH_9.6\r\n"))
+		_ = c.Close()
+	})
+	port := mustPort(t, addr)
+
+	// Temporarily make the fixture's ephemeral port a server-speaks-first banner
+	// port so the REAL grabBanner reads from it; restore the sets afterwards.
+	ssfPrior, ssfHad := serverSpeaksFirst[port]
+	bpPrior, bpHad := bannerPorts[port]
+	serverSpeaksFirst[port] = true
+	bannerPorts[port] = true
+	defer func() {
+		if ssfHad {
+			serverSpeaksFirst[port] = ssfPrior
+		} else {
+			delete(serverSpeaksFirst, port)
+		}
+		if bpHad {
+			bannerPorts[port] = bpPrior
+		} else {
+			delete(bannerPorts, port)
+		}
+	}()
+
+	st := scanstate.New("full", "engine/test")
+	seedAsset(st, "127.0.0.1")
+	opts := Options{Tier: ResolveTier("polite"), Ports: []int{port}}
+	if err := Run(context.Background(), st, capabilities.Capabilities{}, opts); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	assets := st.Assets()
+	if len(assets) != 1 {
+		t.Fatalf("got %d assets, want 1", len(assets))
+	}
+	a := assets[0]
+	if len(a.Services) != 1 {
+		t.Fatalf("got %d services, want exactly 1", len(a.Services))
+	}
+	svc := a.Services[0]
+	if svc.Product == nil || *svc.Product != "OpenSSH" {
+		t.Errorf("service Product = %v, want OpenSSH (real parseServiceIdentity ran via Run)", strOrNil(svc.Product))
+	}
+	if svc.ServiceVersion == nil || *svc.ServiceVersion != "9.6" {
+		t.Errorf("service ServiceVersion = %v, want 9.6", strOrNil(svc.ServiceVersion))
+	}
+
+	if a.Classification == nil {
+		t.Fatal("asset has no classification")
+	}
+	ev := a.Classification.Evidence
+	srcKey := "service_identity_source:" + strconv.Itoa(port)
+	confKey := "service_identity_confidence:" + strconv.Itoa(port)
+	if ev[srcKey] != "port-banner-v1" {
+		t.Errorf("%s = %q, want port-banner-v1 (provenance wired upstream)", srcKey, ev[srcKey])
+	}
+	if ev[confKey] != "low" {
+		t.Errorf("%s = %q, want low", confKey, ev[confKey])
+	}
+}
+
+// mustPort extracts the integer port from a host:port loopback address.
+func mustPort(t *testing.T, addr string) int {
+	t.Helper()
+	_, p, err := net.SplitHostPort(addr)
+	if err != nil {
+		t.Fatalf("split host port: %v", err)
+	}
+	n, err := strconv.Atoi(p)
+	if err != nil {
+		t.Fatalf("atoi port: %v", err)
+	}
+	return n
 }

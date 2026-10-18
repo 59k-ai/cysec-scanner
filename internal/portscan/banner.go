@@ -7,6 +7,7 @@ import (
 	"context"
 	"io"
 	"net"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -91,23 +92,102 @@ func sanitizeBanner(raw []byte) string {
 	return strings.TrimSpace(string(out))
 }
 
-// parseServiceIdentity extracts a structured product/service-version pair from a
-// banner. It is a stub this phase (always nil,nil) — the light structured parse
-// lands in a later plan and flows through the already-wired service-identity
-// provenance labeling with no change to the orchestrator.
+// Banner parse regexes, compiled once. sshBannerRe captures the software token of
+// an SSH-2.0 identification string; serverHeaderRe captures an HTTP Server header
+// value in multiline mode (so a full response block is scanned line by line).
+var (
+	sshBannerRe    = regexp.MustCompile(`^SSH-2\.0-(\S+?)(?:\s|$)`)
+	serverHeaderRe = regexp.MustCompile(`(?im)^Server:\s*(.+)$`)
+)
+
+// parseServiceIdentity light-parses an obvious product and service version out of
+// a banner into the v5 product/service_version fields (D-07). It dispatches on the
+// banner CONTENT, not the port, so it works regardless of which port the evidence
+// came from: an SSH-2.0 identification string splits into software + version
+// (e.g. "OpenSSH" / "9.6"), and an HTTP Server header becomes the product. It
+// returns (nil, nil) whenever nothing parses — it never fabricates a value.
+//
+// Every value returned here is deliberately RAW: this function asserts no
+// confidence, writes no provenance, and sets no authoritative OS field. The
+// orchestrator (04-01) already labels each returned value low-confidence and
+// source-tagged on the classification evidence map (D-08), so Phase 5 can override
+// a light-parse value with a higher-fidelity match.
 func parseServiceIdentity(port int, b bannerResult) (product, version *string) {
 	_ = port
-	_ = b
+	text := b.Text
+	if text == "" {
+		return nil, nil
+	}
+	if m := sshBannerRe.FindStringSubmatch(text); m != nil {
+		software, ver := splitSoftwareVersion(m[1])
+		if software == "" {
+			return nil, nil
+		}
+		if ver != "" {
+			return strPtr(software), strPtr(ver)
+		}
+		return strPtr(software), nil
+	}
+	if m := serverHeaderRe.FindStringSubmatch(text); m != nil {
+		if prod := strings.TrimSpace(m[1]); prod != "" {
+			return strPtr(prod), nil
+		}
+	}
 	return nil, nil
 }
 
-// bannerHints extracts a coarse product hint and an OS cue from a banner (e.g. an
-// SSH comment string or an HTTP Server header). It is a stub this phase (always
-// "",""); the extraction lands in a later plan. The aggregation that feeds the
-// single per-asset product/OS hint already calls this per open port in ascending
-// order, so the real hints flow through without re-touching the orchestrator.
+// bannerHints extracts a coarse product hint and an OS cue from a banner for the
+// classifier (D-10). An SSH identification string implies a unix-like host
+// ("linux" cue); an HTTP response is matched against a small substring map for a
+// device product hint (router/openwrt/camera/nas/media/echo/printer) and an
+// IIS/Microsoft Server header gives a "windows" cue. Both are empty when nothing
+// matches. Like parseServiceIdentity these are low-confidence cues only — the
+// provenance/precedence is owned upstream; this returns raw hint strings.
 func bannerHints(port int, b bannerResult) (productHint string, osCue string) {
 	_ = port
-	_ = b
-	return "", ""
+	text := b.Text
+	if text == "" {
+		return "", ""
+	}
+	if strings.HasPrefix(text, "SSH-2.0-") {
+		// An SSH daemon (OpenSSH and friends) implies a unix-like operating system.
+		return "", "linux"
+	}
+	lower := strings.ToLower(text)
+	switch {
+	case strings.Contains(lower, "routeros"):
+		productHint = "router"
+	case strings.Contains(lower, "openwrt") || strings.Contains(lower, "lede"):
+		productHint = "openwrt"
+	case strings.Contains(lower, "dvr"):
+		productHint = "camera"
+	case strings.Contains(lower, "synology") || strings.Contains(lower, "diskstation"):
+		productHint = "nas"
+	case strings.Contains(lower, "homerun") || strings.Contains(lower, "hdhr"):
+		productHint = "media"
+	case strings.Contains(lower, "echo") || strings.Contains(lower, "alexa") || strings.Contains(lower, "a113"):
+		productHint = "echo"
+	case strings.Contains(lower, "deskjet") || strings.Contains(lower, "laserjet") || strings.Contains(lower, "hp-chai"):
+		productHint = "printer"
+	}
+	if strings.Contains(lower, "iis") || strings.Contains(lower, "microsoft") {
+		osCue = "windows"
+	}
+	return productHint, osCue
 }
+
+// splitSoftwareVersion splits an SSH software token into software and version on
+// the LAST underscore-or-dash (e.g. "OpenSSH_9.6" -> "OpenSSH","9.6"), mirroring
+// the reference's last-separator rule. A token with no interior separator returns
+// the whole token as software and an empty version.
+func splitSoftwareVersion(s string) (software, version string) {
+	idx := strings.LastIndexAny(s, "_-")
+	if idx <= 0 || idx == len(s)-1 {
+		return s, ""
+	}
+	return s[:idx], s[idx+1:]
+}
+
+// strPtr returns a pointer to s — the v5 optional fields are *string so an
+// absent value marshals to JSON null.
+func strPtr(s string) *string { return &s }
