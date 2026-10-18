@@ -24,9 +24,12 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/cysec-watch/cysec-scanner/internal/capabilities"
+	"github.com/cysec-watch/cysec-scanner/internal/discovery"
 	"github.com/cysec-watch/cysec-scanner/internal/payload"
 	"github.com/cysec-watch/cysec-scanner/internal/pipeline"
 	"github.com/cysec-watch/cysec-scanner/internal/progress"
+	"github.com/cysec-watch/cysec-scanner/internal/scanstate"
 )
 
 // collectorVersion stamps the payload's collector_version field for this engine.
@@ -80,9 +83,26 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 	}()
 
+	// ENG-06: detect the runtime capabilities exactly once at startup and thread
+	// the immutable value struct into the stages by value.
+	caps := capabilities.Detect()
+
+	// The shared accumulator the discovery stage writes assets into and later
+	// stages enrich. Stage closures capture it, so the pipeline control-flow
+	// package stays untouched (ENG-01).
+	st := scanstate.New(string(fullPayloadType), collectorVersion)
+	stages := []pipeline.Stage{
+		{Name: pipeline.StageDiscovery, Run: func(ctx context.Context) error {
+			return discovery.Run(ctx, st, caps, []string(cidrs))
+		}},
+		{Name: pipeline.StagePort, Run: func(context.Context) error { return nil }},
+		{Name: pipeline.StageFingerprint, Run: func(context.Context) error { return nil }},
+		{Name: pipeline.StageAuthPosture, Run: func(context.Context) error { return nil }},
+	}
+
 	emitter := progress.NewEmitter(stdout)
 	_ = emitter.Phase(progress.PhaseStart, "collect")
-	runErr := pipeline.New().Run(ctx, func(stage pipeline.StageName) {
+	runErr := pipeline.NewWithStages(stages).Run(ctx, func(stage pipeline.StageName) {
 		_ = emitter.Agent(progress.AgentStart, "collect", string(stage))
 	})
 	_ = emitter.Phase(progress.PhaseDone, "collect")
@@ -96,12 +116,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	// Assemble the empty-ish strict-valid v5 payload and write it to the file.
-	// Real scanning stages will populate it from Phase 3 onward.
-	pl := payload.NewEmpty(string(fullPayloadType), collectorVersion)
+	// Snapshot the accumulated payload the stages populated.
+	pl := st.Payload()
 	// WR-02 — force every required container (top-level + nested) non-nil so a
-	// populated asset from a future scanning stage never marshals a required
-	// list/map to JSON "null", which the strict reference schema 400-rejects.
+	// populated asset from a scanning stage never marshals a required list/map
+	// to JSON "null", which the strict reference schema 400-rejects.
 	pl.Normalize()
 	data, err := json.MarshalIndent(pl, "", "  ")
 	if err != nil {
