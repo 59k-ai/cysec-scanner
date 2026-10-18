@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"testing"
 
 	"github.com/cysec-watch/cysec-scanner/internal/capabilities"
@@ -87,6 +88,144 @@ func TestTracerEndToEnd(t *testing.T) {
 	assets2 := assertStrictValidV5(t, marshalToMap(t, st2))
 	if len(assets2) != 0 {
 		t.Fatalf("zero-live case produced %d assets, want 0", len(assets2))
+	}
+}
+
+// runWithL2 runs discovery with injected sweep/ARP/local-network seams and the
+// ARP capability on, returning the resulting assets decoded from JSON and keyed
+// by external_id. A real OUI MAC (28:6f:b9… = MA-L Nokia Shanghai Bell) lets the
+// vendor lookup resolve against the embedded registry.
+func runWithL2(t *testing.T, live []netutil.SweepResult, arp map[string]string, local []string) map[string]map[string]any {
+	t.Helper()
+	origSweep, origARP, origLocal := sweepHosts, arpTable, localNetworks
+	defer func() { sweepHosts, arpTable, localNetworks = origSweep, origARP, origLocal }()
+
+	sweepHosts = func(context.Context, []string, capabilities.Capabilities, netutil.PingFunc) []netutil.SweepResult {
+		return live
+	}
+	arpTable = func() map[string]string { return arp }
+	localNetworks = func() []string { return local }
+
+	st := scanstate.New("full", "engine/test")
+	caps := capabilities.Capabilities{ARPCache: true}
+	if err := Run(context.Background(), st, caps, []string{"10.0.0.0/24"}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	assets := assertStrictValidV5(t, marshalToMap(t, st))
+	out := map[string]map[string]any{}
+	for _, a := range assets {
+		am := a.(map[string]any)
+		out[am["external_id"].(string)] = am
+	}
+	return out
+}
+
+func keysOf(m map[string]map[string]any) []string {
+	ks := make([]string, 0, len(m))
+	for k := range m {
+		ks = append(ks, k)
+	}
+	sort.Strings(ks)
+	return ks
+}
+
+// TestEnrichL2States proves the three distinct L2 states: a local host carries a
+// real MAC + OUI vendor with a stabilized mac:<mac> identity and no classification
+// evidence; a routed host carries a null MAC, the sentinel vendor, and an
+// l2_segment=routed evidence key; a not-observed host (within a local segment but
+// absent from the ARP cache) stays fully null with no l2_segment key.
+func TestEnrichL2States(t *testing.T) {
+	live := []netutil.SweepResult{
+		{IP: "10.0.0.5", TTL: 64},    // local: has an ARP entry
+		{IP: "203.0.113.9", TTL: 54}, // routed: no ARP entry, outside local CIDR
+		{IP: "10.0.0.7", TTL: 64},    // not observed: in local CIDR, no ARP entry
+	}
+	arp := map[string]string{"10.0.0.5": "28:6f:b9:00:00:01"}
+	assets := runWithL2(t, live, arp, []string{"10.0.0.0/24"})
+
+	// Local host: re-keyed to mac:<mac>, real MAC + vendor, no classification.
+	local, ok := assets["mac:28:6f:b9:00:00:01"]
+	if !ok {
+		t.Fatalf("local host not re-keyed to mac:<mac>; keys=%v", keysOf(assets))
+	}
+	if local["mac_address"] != "28:6f:b9:00:00:01" {
+		t.Errorf("local mac_address = %v, want 28:6f:b9:00:00:01", local["mac_address"])
+	}
+	if v, _ := local["mac_vendor"].(string); v == "" || v == macVendorNotOnLocalSegment {
+		t.Errorf("local mac_vendor = %q, want a real OUI vendor", v)
+	}
+	if local["classification_evidence"] != nil {
+		t.Errorf("local host must carry no classification evidence, got %v", local["classification_evidence"])
+	}
+
+	// Routed host: null MAC, sentinel vendor, l2_segment=routed evidence.
+	routed, ok := assets["ip:203.0.113.9"]
+	if !ok {
+		t.Fatalf("routed host missing; keys=%v", keysOf(assets))
+	}
+	if routed["mac_address"] != nil {
+		t.Errorf("routed mac_address = %v, want null", routed["mac_address"])
+	}
+	if routed["mac_vendor"] != macVendorNotOnLocalSegment {
+		t.Errorf("routed mac_vendor = %v, want sentinel %q", routed["mac_vendor"], macVendorNotOnLocalSegment)
+	}
+	ce, ok := routed["classification_evidence"].(map[string]any)
+	if !ok {
+		t.Fatalf("routed classification_evidence missing (got %T)", routed["classification_evidence"])
+	}
+	ev, _ := ce["evidence"].(map[string]any)
+	if ev[evidenceKeyL2Segment] != evidenceValueRouted {
+		t.Errorf("routed evidence[%q] = %v, want %q", evidenceKeyL2Segment, ev[evidenceKeyL2Segment], evidenceValueRouted)
+	}
+
+	// Not-observed host: fully null, no l2_segment evidence key.
+	notObs, ok := assets["ip:10.0.0.7"]
+	if !ok {
+		t.Fatalf("not-observed host missing; keys=%v", keysOf(assets))
+	}
+	if notObs["mac_address"] != nil || notObs["mac_vendor"] != nil {
+		t.Errorf("not-observed host must be fully null, got mac=%v vendor=%v", notObs["mac_address"], notObs["mac_vendor"])
+	}
+	if notObs["classification_evidence"] != nil {
+		t.Errorf("not-observed host must carry no l2_segment evidence, got %v", notObs["classification_evidence"])
+	}
+}
+
+// TestEnrichL2HarvestsARPOnlyHost proves a host that answered ARP but stayed
+// ICMP-silent (the Windows Public-profile case) is harvested into the set and
+// keyed by its stable mac:<mac> identity.
+func TestEnrichL2HarvestsARPOnlyHost(t *testing.T) {
+	live := []netutil.SweepResult{{IP: "10.0.0.5", TTL: 64}}
+	arp := map[string]string{
+		"10.0.0.5":  "28:6f:b9:00:00:01",
+		"10.0.0.50": "28:6f:b9:00:00:02", // ARP-only, never answered ICMP
+	}
+	assets := runWithL2(t, live, arp, []string{"10.0.0.0/24"})
+	if _, ok := assets["mac:28:6f:b9:00:00:02"]; !ok {
+		t.Fatalf("ARP-only host not harvested; keys=%v", keysOf(assets))
+	}
+}
+
+// TestEnrichL2ClaimedMACGuard proves a MAC already claimed by one asset does not
+// collapse a second host's identity: with two IPs behind one MAC (proxy/shared
+// MAC) the lowest IP claims mac:<mac> and the other keeps its ip:<ip> identity,
+// so two distinct assets remain.
+func TestEnrichL2ClaimedMACGuard(t *testing.T) {
+	shared := "28:6f:b9:00:00:01"
+	live := []netutil.SweepResult{
+		{IP: "10.0.0.5", TTL: 64},
+		{IP: "10.0.0.6", TTL: 64},
+	}
+	arp := map[string]string{"10.0.0.5": shared, "10.0.0.6": shared}
+	assets := runWithL2(t, live, arp, []string{"10.0.0.0/24"})
+	if _, ok := assets["mac:"+shared]; !ok {
+		t.Fatalf("shared MAC must be claimed by one asset; keys=%v", keysOf(assets))
+	}
+	if _, ok := assets["ip:10.0.0.6"]; !ok {
+		t.Fatalf("second host behind a claimed MAC must keep ip:<ip>; keys=%v", keysOf(assets))
+	}
+	if len(assets) != 2 {
+		t.Fatalf("want 2 distinct assets, got %d: %v", len(assets), keysOf(assets))
 	}
 }
 

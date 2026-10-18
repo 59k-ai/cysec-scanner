@@ -20,16 +20,28 @@ import (
 	"github.com/cysec-watch/cysec-scanner/internal/scanstate"
 )
 
-// sweepHosts is the seam discovery enumerates live hosts through; overridable in
-// tests so the end-to-end path can be proven without real packets.
-var sweepHosts = netutil.Sweep
+// Injectable seams the discovery stage drives the host world through, overridable
+// in tests so the end-to-end path can be proven without real packets, OS reads or
+// a live network. sweepHosts enumerates live hosts; arpTable reads the kernel ARP
+// cache; localNetworks reports this host's local segments (used both as the
+// default sweep scope and to decide whether an L2-silent host is routed).
+var (
+	sweepHosts    = netutil.Sweep
+	arpTable      = netutil.ARPTable
+	localNetworks = netutil.LocalLANNetworks
+)
 
 // hostEntry is one live host collected during a run, before it is finalized into
 // an asset. ttl is the best-effort reply TTL kept for a later OS-fingerprint
-// hint (attacker-spoofable, low confidence).
+// hint (attacker-spoofable, low confidence). mac/macVendor are the post-sweep
+// Layer-2 enrichment (nil = not observed); routed marks a confirmed off-segment
+// host carrying the DISC-03 "not on local segment" state.
 type hostEntry struct {
-	ip  string
-	ttl int
+	ip        string
+	ttl       int
+	mac       *string
+	macVendor *string
+	routed    bool
 }
 
 // Run resolves the scope, sweeps it, and writes one base AssetItem per live host
@@ -38,7 +50,7 @@ type hostEntry struct {
 func Run(ctx context.Context, st *scanstate.ScanState, caps capabilities.Capabilities, cidrs []string) error {
 	scope := cidrs
 	if len(scope) == 0 {
-		scope = netutil.LocalLANNetworks()
+		scope = localNetworks()
 	}
 
 	// The sweep selects its live path from caps; a fully-degraded host (no
@@ -48,14 +60,23 @@ func Run(ctx context.Context, st *scanstate.ScanState, caps capabilities.Capabil
 	results := sweepHosts(ctx, scope, caps, nil)
 
 	// Collect live hosts into an internal set keyed by external_id. ip:<ip> is
-	// the only identity known this phase; later plans re-key/harvest here before
-	// anything is committed to the payload.
+	// the only identity known from the sweep; L2 enrichment re-keys/harvests here
+	// before anything is committed to the payload.
 	entries := map[string]hostEntry{}
 	for _, r := range results {
 		id := externalID(r.IP)
 		if _, ok := entries[id]; !ok {
 			entries[id] = hostEntry{ip: r.IP, ttl: r.TTL}
 		}
+	}
+
+	// Post-sweep Layer-2 enrichment (DISC-02/DISC-03): harvest ARP-only hosts,
+	// assign MAC/vendor and stabilize identity (ip:<ip> -> mac:<mac>), and mark
+	// confirmed routed hosts. Runs only when the ARP cache was readable — without
+	// an L2 probe a routed host is indistinguishable from "not observed", so the
+	// whole set stays fully null in that case.
+	if caps.ARPCache {
+		enrichL2(entries, arpTable(), localNetworks())
 	}
 
 	// Finalize into assets at the end, in deterministic order.
@@ -80,14 +101,33 @@ func externalID(ip string) string {
 // container is an empty literal (never nil) so the asset marshals strict-valid
 // without relying solely on payload.Normalize(). Discovery never claims a host
 // is managed or internet-facing — the cloud owns exposure truth.
+//
+// Layer-2 state (DISC-02/DISC-03): a local-segment host carries a real
+// mac_address + mac_vendor; a confirmed routed host carries a null mac_address,
+// the "not on local segment" sentinel in mac_vendor, and an l2_segment=routed
+// classification evidence key; a host never L2-probed stays fully null (nil
+// mac_address + nil mac_vendor + nil classification).
 func buildAsset(id string, e hostEntry) payload.AssetItem {
 	ip := e.ip
-	return payload.AssetItem{
+	a := payload.AssetItem{
 		ExternalID:     id,
 		IPAddress:      &ip,
 		Managed:        false,
 		InternetFacing: false,
 		Services:       []payload.ServiceItem{},
 		NetworkAliases: []payload.NetworkAliasItem{},
+		MACAddress:     e.mac,
+		MACVendor:      e.macVendor,
 	}
+	if e.routed {
+		sentinel := macVendorNotOnLocalSegment
+		a.MACAddress = nil
+		a.MACVendor = &sentinel
+		a.Classification = &payload.ClassificationEvidence{
+			AssetType:     routedAssetType,
+			Evidence:      map[string]string{evidenceKeyL2Segment: evidenceValueRouted},
+			SecurityFlags: []string{},
+		}
+	}
+	return a
 }
