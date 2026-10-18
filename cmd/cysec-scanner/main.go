@@ -64,14 +64,23 @@ func run(args []string, stdout, stderr io.Writer) int {
 	var cidrs cidrList
 	fs.Var(&cidrs, "cidr", "scope CIDR to scan (repeatable); empty means auto-detect the local subnet")
 	timing := fs.String("timing", "polite", "scan timing tier: polite (default)")
+	ports := fs.String("ports", "", "comma-separated ports/ranges to scan, e.g. \"22,80,443,8000-8010\"; empty uses the curated default set")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 
-	// Resolve the port set: the curated default when no override is given (the
-	// --ports override flag is wired in a later task). The resolved set rides
+	// Resolve the port set: the curated default when no --ports override is given,
+	// otherwise the validated operator list/ranges (D-02). The resolved set rides
 	// under the active timing tier's scan-wide PPS cap.
 	resolvedPorts := portscan.DefaultPortSet
+	if *ports != "" {
+		parsed, err := portscan.ParsePorts(*ports)
+		if err != nil {
+			logger.Error("invalid --ports value", "err", err)
+			return 2
+		}
+		resolvedPorts = parsed
+	}
 	if *payloadOut == "" {
 		logger.Error("missing required flag", "flag", "--payload-out")
 		return 2

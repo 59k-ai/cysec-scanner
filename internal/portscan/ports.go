@@ -3,6 +3,13 @@
 
 package portscan
 
+import (
+	"fmt"
+	"sort"
+	"strconv"
+	"strings"
+)
+
 // Curated default scan set (PORT-01, D-01/D-02).
 //
 // DefaultPortSet is the conservative, high-signal set of TCP ports probed when
@@ -33,4 +40,74 @@ var serviceNameByPort = map[int]string{
 	5432: "postgresql", 5900: "vnc", 5985: "winrm-http", 5986: "winrm-https",
 	7000: "rtsp-alt", 8008: "http-alt", 8080: "http-proxy", 8443: "https-alt",
 	9000: "cslistener", 9100: "jetdirect", 27017: "mongodb",
+}
+
+// minPort and maxPort bound a valid TCP port number.
+const (
+	minPort = 1
+	maxPort = 65535
+)
+
+// ParsePorts parses an operator --ports override (D-02) into an ascending,
+// de-duplicated port list. The spec is a comma-separated list of single ports
+// and inclusive lo-hi ranges, e.g. "22,80,443,8000-8010". Every token must be
+// numeric and within 1..65535, and a range must not be inverted; any violation
+// returns a descriptive error rather than silently dropping the token. An empty
+// or whitespace-only spec returns an error — the caller falls back to
+// DefaultPortSet when no flag is given, so reaching here with nothing to parse is
+// an operator mistake worth surfacing.
+func ParsePorts(spec string) ([]int, error) {
+	trimmed := strings.TrimSpace(spec)
+	if trimmed == "" {
+		return nil, fmt.Errorf("empty port specification")
+	}
+
+	seen := map[int]bool{}
+	for _, raw := range strings.Split(trimmed, ",") {
+		token := strings.TrimSpace(raw)
+		if token == "" {
+			return nil, fmt.Errorf("empty port token in %q", spec)
+		}
+		if lo, hi, isRange := strings.Cut(token, "-"); isRange {
+			loN, err := parsePort(strings.TrimSpace(lo))
+			if err != nil {
+				return nil, fmt.Errorf("invalid range %q: %w", token, err)
+			}
+			hiN, err := parsePort(strings.TrimSpace(hi))
+			if err != nil {
+				return nil, fmt.Errorf("invalid range %q: %w", token, err)
+			}
+			if loN > hiN {
+				return nil, fmt.Errorf("inverted range %q: %d > %d", token, loN, hiN)
+			}
+			for p := loN; p <= hiN; p++ {
+				seen[p] = true
+			}
+			continue
+		}
+		p, err := parsePort(token)
+		if err != nil {
+			return nil, err
+		}
+		seen[p] = true
+	}
+
+	out := make([]int, 0, len(seen))
+	for p := range seen {
+		out = append(out, p)
+	}
+	sort.Ints(out)
+	return out, nil
+}
+
+// parsePort parses a single numeric port token and enforces the 1..65535 band.
+func parsePort(token string) (int, error) {
+	n, err := strconv.Atoi(token)
+	if err != nil {
+		return 0, fmt.Errorf("port %q is not a number", token)
+	}
+	if n < minPort || n > maxPort {
+		return 0, fmt.Errorf("port %d out of range %d..%d", n, minPort, maxPort)
+	}
+	return n, nil
 }
