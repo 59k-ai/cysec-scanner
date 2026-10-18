@@ -30,3 +30,46 @@ jobs:
 
       - name: datacheck (denylist over data/ + allowlist integrity)
         run: go run ./cmd/datacheck --root .
+
+  # Dependency-license gate (LIC-02, threat T-1-05/T-1-07): reddens the pipeline
+  # if ANY forbidden license appears in the Go module graph. go-licenses catches
+  # copyleft/OEM licenses carried by third-party Go MODULES; the data-file
+  # denylist above (datacheck) catches contaminating DATA files that ship no SPDX
+  # header. Both layers are required (RESEARCH §"Don't Hand-Roll").
+  #
+  # FORBIDDEN LICENSE SET (RESEARCH §"Denylisted datasets"): GPL-*, AGPL-*,
+  # LGPL-* (all copyleft, classified by go-licenses as "restricted"); NPSL
+  # (nmap, copyleft) and FoxIO-License-1.1 (JA4+, patent-pending) which classify
+  # as "forbidden"/"restricted"/unknown. --disallowed_types=forbidden,restricted
+  # fails the job (non-zero) on any of them. The Phase-1 module graph has
+  # near-zero third-party runtime deps so this passes green today; the gate guards
+  # against a future copyleft Go dependency creeping in.
+  #
+  # go-licenses is PINNED by commit SHA (v1.6.0 = 5348b744d0983d85713295ea08a20cca1654a45e,
+  # never @latest — threat T-1-07). Its own LICENSE is verified Apache-2.0
+  # (resolves the RESEARCH [ASSUMED] tag; raw .../v1.6.0/LICENSE => "Apache License
+  # Version 2.0"). It is a CI dev tool, not embedded in the shipped binary.
+  licenses:
+    name: dependency license gate (go-licenses)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          check-latest: true
+
+      - name: Install go-licenses (pinned by commit SHA; Apache-2.0)
+        run: go install github.com/google/go-licenses@5348b744d0983d85713295ea08a20cca1654a45e
+
+      - name: Resolve module graph
+        run: go mod download
+
+      # Forbidden set: GPL-* / AGPL-* / LGPL-* (restricted) + NPSL + FoxIO-License-1.1
+      # (forbidden/restricted). No continue-on-error — a forbidden dependency MUST
+      # redden the pipeline.
+      - name: "go-licenses check (forbidden set: GPL/AGPL/LGPL/NPSL/FoxIO)"
+        run: go-licenses check ./... --disallowed_types=forbidden,restricted
