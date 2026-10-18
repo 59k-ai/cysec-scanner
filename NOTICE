@@ -1,0 +1,12 @@
+cysec-scanner
+Copyright 2026 cysec.watch
+
+This product includes software developed as part of the cysec.watch
+open-source network scanner engine.
+
+This software is licensed under the Apache License, Version 2.0 (see the
+LICENSE file in this repository).
+
+Third-party dataset and dependency notices (including the licenses and
+required attributions for every bundled dataset and Go-module dependency)
+are recorded in THIRD_PARTY_NOTICES.md.
