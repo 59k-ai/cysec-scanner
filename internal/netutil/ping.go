@@ -2,6 +2,7 @@ package netutil
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -71,12 +72,31 @@ func systemPing(ctx context.Context, ip string, timeout time.Duration) (bool, in
 		secs = 1
 	}
 	args := append(fam, "-c", "1", "-W", strconv.Itoa(secs), "-n", "-q", ip)
-	out, _ := exec.CommandContext(ctx, "ping", args...).Output()
-	s := string(out)
-	if strings.Contains(s, "1 received") || strings.Contains(s, "1 packets received") {
-		return true, parseReplyTTL(s)
+	cmd := exec.CommandContext(ctx, "ping", args...)
+	// Force a stable C locale so neither the liveness decision nor the TTL hint
+	// depends on the host's LANG/LC_ALL. The DACH target market commonly runs a
+	// German (de_DE.*) locale, where iputils localizes its stats line ("… 1
+	// empfangen") — an English-substring match would then miss a live host on the
+	// primary Linux liveness path. Liveness itself comes from the exit code below,
+	// but the forced locale also keeps the TTL "ttl=" token stable.
+	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
+	out, err := cmd.Output()
+	return pingResultLive(out, err)
+}
+
+// pingResultLive maps a completed `ping -c 1` run onto (live, ttlHint). Liveness
+// is decided by the process EXIT STATUS, never the output text: `ping -c 1`
+// exits 0 only when an echo reply arrived, so a nil error (exit 0) is live
+// regardless of the stdout language — this removes the English-substring
+// dependency entirely. A non-zero exit is the normal "no reply" case (surfaced
+// as *exec.ExitError with code 1) and maps to not-live, not an error; any other
+// failure (binary missing, context deadline) is likewise treated as not-live and
+// never panics. The output string is consulted ONLY for the best-effort TTL hint.
+func pingResultLive(out []byte, runErr error) (bool, int) {
+	if runErr != nil {
+		return false, 0
 	}
-	return false, 0
+	return true, parseReplyTTL(string(out))
 }
 
 // parseReplyTTL extracts a "ttl=NN" hint from ping output when present (best
@@ -89,11 +109,22 @@ func parseReplyTTL(s string) int {
 		return 0
 	}
 	n := 0
+	count := 0
 	for _, c := range low[i+len("ttl="):] {
 		if c < '0' || c > '9' {
 			break
 		}
 		n = n*10 + int(c-'0')
+		count++
+		// A TTL is 0..255. Cap the digit run (never accumulate past 3 digits) so a
+		// hostile/garbage reply cannot overflow int, and bail once we exceed the
+		// IPv4 ceiling.
+		if count >= 3 || n > 255 {
+			break
+		}
+	}
+	if n > 255 {
+		return 0 // out of the valid 0..255 band → treat as garbage
 	}
 	return n
 }
