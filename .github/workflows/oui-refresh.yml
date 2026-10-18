@@ -1,0 +1,80 @@
+name: oui-refresh
+
+# Scheduled IEEE OUI snapshot refresh (D-07). This workflow is DELIBERATELY
+# separate from governance.yml: it never gates a build or a PR. Because the OUI
+# snapshot is already vendored and hash-pinned in data/allowlist.json, a failed
+# or flapping refresh (e.g. IEEE's HTTP 418 anti-bot, RESEARCH Pitfall 1) only
+# fails THIS job — it can never redden the governance gate or block the engine
+# build. The refresh result is always a reviewable pull request, never an
+# auto-merge and never a live build dependency.
+on:
+  schedule:
+    # Monthly: 04:17 UTC on the 1st. Keeps the pin current without ever being
+    # in a build's critical path.
+    - cron: "17 4 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  oui-refresh:
+    name: refresh IEEE OUI pin (open PR on change)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          check-latest: true
+
+      # Fetch the three IEEE CSVs (browser UA + GET + retry/backoff, inside the
+      # tool) and bump data/allowlist.json on a diff. Exit-code contract:
+      #   0  = no change, 10 = changes written, 1 = hard error.
+      # No failure-suppression escape hatch here: a hard error (exit 1) MUST
+      # fail this refresh job so a broken fetch is visible — it still never
+      # touches any build, since the pinned snapshot is already vendored.
+      - name: Fetch IEEE OUI snapshot + diff against pin
+        id: fetch
+        run: |
+          set +e
+          go run ./tools/oui-fetch --root .
+          code=$?
+          set -e
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          case "$code" in
+            0)  echo "changed=false" >> "$GITHUB_OUTPUT" ;;
+            10) echo "changed=true"  >> "$GITHUB_OUTPUT" ;;
+            *)  echo "oui-fetch failed with exit $code"; exit "$code" ;;
+          esac
+
+      # Open a reviewable pin-bump PR only when the snapshot actually changed.
+      # Pinning this action by commit SHA is recommended before the first LIVE
+      # run under the cysec-watch org (Phase 8); a major-version tag is used here
+      # to match the existing governance.yml action-pinning idiom.
+      - name: Open pin-bump pull request
+        if: steps.fetch.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore(oui): refresh IEEE OUI snapshot + sha256 pins"
+          branch: oui-refresh/pin-bump
+          delete-branch: true
+          title: "chore(oui): refresh IEEE OUI snapshot"
+          body: |
+            Automated IEEE OUI snapshot refresh (D-07).
+
+            `tools/oui-fetch` detected a diff between the live IEEE CSVs and the
+            pinned snapshot and bumped the vendored files + `data/allowlist.json`
+            SHA-256 pins / snapshot dates.
+
+            Review the data diff and the pin changes before merging — this PR is
+            the only path by which the pinned snapshot advances. Merging it does
+            not change build reproducibility: every build uses the pinned,
+            hash-verified snapshot on the merge commit.
+          labels: |
+            governance
+            oui-refresh
