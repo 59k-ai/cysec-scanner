@@ -42,6 +42,43 @@ var serviceNameByPort = map[int]string{
 	9000: "cslistener", 9100: "jetdirect", 27017: "mongodb",
 }
 
+// Banner-grab port sets (PORT-04, D-06). These gate and shape the plaintext
+// banner read: bannerPorts decides WHETHER a port is worth a grab at all, and the
+// two subsets decide HOW. They are deliberately a small, curated set — reading a
+// banner off an arbitrary port rarely yields clean evidence and wastes the time
+// budget — and are a superset of the actual scan set (e.g. 110/POP3 is listed for
+// completeness but is not in DefaultPortSet, so it is simply never reached).
+
+// serverSpeaksFirst are the classic ports whose service emits a greeting the
+// instant the TCP handshake completes (FTP/SSH/Telnet/SMTP/DNS/IMAP/submission).
+// The grab reads the greeting directly, sending nothing.
+var serverSpeaksFirst = map[int]bool{
+	21: true, 22: true, 23: true, 25: true, 53: true, 110: true, 143: true, 587: true,
+}
+
+// httpProbePorts are the plaintext-HTTP ports that stay silent until a request
+// arrives, so the grab writes a minimal HEAD line first and then reads the
+// status line + response headers.
+var httpProbePorts = map[int]bool{
+	80: true, 8080: true, 8008: true, 9000: true,
+}
+
+// bannerPorts is the full set a banner grab is attempted on (plaintext only — the
+// TLS ports 443/8443 take the handshake peek instead, handled in grabBanner). A
+// port absent here is never read from. The extras beyond the two subsets above
+// (RTSP 554/7000, VNC 5900, JetDirect 9100) also greet or tolerate a bare read,
+// so the grab reads them directly like a server-speaks-first port.
+var bannerPorts = map[int]bool{
+	21: true, 22: true, 23: true, 25: true, 53: true, 80: true,
+	110: true, 143: true, 554: true, 587: true, 5900: true, 7000: true,
+	8008: true, 8080: true, 9000: true, 9100: true,
+}
+
+// maxBannerBytes caps a single plaintext banner read so a host that streams
+// forever cannot exhaust the probe's memory or time budget. The cap is enforced
+// at the read boundary, so even an unbounded stream yields at most this many bytes.
+const maxBannerBytes = 4096
+
 // minPort and maxPort bound a valid TCP port number.
 const (
 	minPort = 1

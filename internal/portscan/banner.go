@@ -5,6 +5,7 @@ package portscan
 
 import (
 	"context"
+	"io"
 	"net"
 	"strings"
 	"time"
@@ -15,38 +16,75 @@ import (
 // a hard byte cap, and any error collapsed to an empty result — a dark, slow, or
 // hostile endpoint yields nothing, never a hang or a panic. The target host is
 // one of our own scope-enumerated addresses passed as a discrete argument (no
-// shell, no injection surface), so the read is purely inbound evidence.
-
-// maxBannerBytes caps a single plaintext banner read so a host that streams
-// forever cannot exhaust the probe's memory or time budget.
-const maxBannerBytes = 4096
+// shell, no injection surface), so the read is purely inbound evidence. Every
+// captured byte is untrusted, so the text is control-char-sanitized before it
+// leaves this layer.
 
 // bannerResult is the evidence captured from an open port: the trimmed plaintext
-// banner text and, later, the negotiated TLS version string (empty this phase —
-// the TLS peek lands in a later plan).
+// banner text and, on a TLS port, the negotiated TLS version string.
 type bannerResult struct {
 	Text       string
 	TLSVersion string
 }
 
-// grabBanner reads a bounded plaintext banner from an already-open connection.
-// It sets a read deadline from the tier's banner budget, reads at most
-// maxBannerBytes, and returns the trimmed text. Any read error (including a
-// deadline on a connected-but-silent port) collapses to an empty result — it
-// never raises and never blocks past the deadline.
+// grabBanner captures bounded evidence from an already-open connection that
+// dialProbe opened through the shared rate limiter. For a plaintext banner port
+// it sets a read deadline from the tier's banner budget and reads at most
+// maxBannerBytes: an HTTP port is sent a minimal HEAD probe first, every other
+// banner port is read directly as a server-speaks-first greeting. A port that is
+// not a banner port yields an empty result with no bytes sent or read. Any error
+// (including a deadline on a connected-but-silent port) collapses to an empty
+// result — it never raises and never blocks past the deadline.
 func grabBanner(ctx context.Context, conn net.Conn, host string, port int, tier Tier) bannerResult {
 	_ = ctx
-	_ = host
-	_ = port
+	if !bannerPorts[port] {
+		return bannerResult{}
+	}
 	if tier.BannerTimeout > 0 {
 		_ = conn.SetReadDeadline(time.Now().Add(tier.BannerTimeout))
 	}
-	buf := make([]byte, maxBannerBytes)
-	n, err := conn.Read(buf)
-	if n == 0 && err != nil {
-		return bannerResult{}
+
+	switch {
+	case httpProbePorts[port]:
+		// An HTTP server stays silent until it sees a request, so send a minimal
+		// HEAD line (no body expected back) and then read the status + headers.
+		req := "HEAD / HTTP/1.0\r\nHost: " + host + "\r\n\r\n"
+		if _, err := conn.Write([]byte(req)); err != nil {
+			return bannerResult{}
+		}
+	case serverSpeaksFirst[port]:
+		// The greeting is already in flight — read it directly, send nothing.
+	default:
+		// Other banner ports (RTSP, VNC, JetDirect) also greet or tolerate a bare
+		// read; treat them like a server-speaks-first port.
 	}
-	return bannerResult{Text: strings.TrimSpace(string(buf[:n]))}
+
+	// io.LimitReader enforces the byte cap exactly at the read boundary, so an
+	// unbounded stream is truncated to the first maxBannerBytes deterministically
+	// and can never over-read. io.ReadAll surfaces no error path — a deadline or a
+	// reset simply ends the read with whatever bytes arrived.
+	raw, _ := io.ReadAll(io.LimitReader(conn, maxBannerBytes))
+	return bannerResult{Text: sanitizeBanner(raw)}
+}
+
+// sanitizeBanner strips non-printable control bytes from an untrusted banner,
+// keeping tab/CR/LF so a multi-line HTTP header block survives for the later
+// product parse, and trims surrounding whitespace. Dropping the other control
+// characters keeps a hostile endpoint from smuggling terminal escapes into the
+// evidence that reaches the payload.
+func sanitizeBanner(raw []byte) string {
+	out := make([]byte, 0, len(raw))
+	for _, c := range raw {
+		switch {
+		case c == '\t' || c == '\n' || c == '\r':
+			out = append(out, c)
+		case c < 0x20 || c == 0x7f:
+			// drop other control characters
+		default:
+			out = append(out, c)
+		}
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // parseServiceIdentity extracts a structured product/service-version pair from a
