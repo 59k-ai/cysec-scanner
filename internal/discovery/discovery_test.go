@@ -379,6 +379,106 @@ func TestHostnameOnAsset(t *testing.T) {
 	}
 }
 
+// TestDiscoveryPayloadStrictValid is the phase-closing DISC-05 end-to-end gate:
+// it drives discovery.Run with an injected sweep (one local host with a
+// MAC/vendor + TTL, one routed host outside the local segment) into a scanstate
+// accumulator, marshals the accumulated payload the way main.go does (after
+// Normalize), and asserts the JSON is strict-valid v5 populated with assets:
+// schema_version 5; assets a non-empty list; for EVERY asset services /
+// network_aliases / classification_evidence.evidence / security_flags are
+// non-null and asset_type is "unknown"; the local host has a real
+// mac_address + mac_vendor; the routed host has a null mac_address, the sentinel
+// mac_vendor, and evidence["l2_segment"]=="routed". Strict validity is proven
+// entirely in-tree (the payload's Normalize guards + this structural check),
+// with no external validation tooling.
+func TestDiscoveryPayloadStrictValid(t *testing.T) {
+	origSweep, origARP, origLocal := sweepHosts, arpTable, localNetworks
+	defer func() { sweepHosts, arpTable, localNetworks = origSweep, origARP, origLocal }()
+
+	sweepHosts = func(context.Context, []string, capabilities.Capabilities, netutil.PingFunc) []netutil.SweepResult {
+		return []netutil.SweepResult{
+			{IP: "10.0.0.5", TTL: 64},    // local: has an ARP entry -> real MAC/vendor
+			{IP: "203.0.113.9", TTL: 54}, // routed: no ARP entry, outside local CIDR
+		}
+	}
+	arpTable = func() map[string]string { return map[string]string{"10.0.0.5": "28:6f:b9:00:00:01"} }
+	localNetworks = func() []string { return []string{"10.0.0.0/24"} }
+
+	st := scanstate.New("full", "engine/test")
+	caps := capabilities.Capabilities{ARPCache: true}
+	if err := Run(context.Background(), st, caps, []string{"10.0.0.0/24"}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	m := marshalToMap(t, st)
+	assets := assertStrictValidV5(t, m)
+	if len(assets) == 0 {
+		t.Fatal("assets is empty, want a populated payload for the DISC-05 gate")
+	}
+
+	// Every asset must carry non-null required containers and asset_type unknown.
+	byID := map[string]map[string]any{}
+	for _, raw := range assets {
+		a := raw.(map[string]any)
+		byID[a["external_id"].(string)] = a
+
+		if _, ok := a["services"].([]any); !ok {
+			t.Errorf("asset %v services is not a JSON list (got %T) — must be [] not null", a["external_id"], a["services"])
+		}
+		if _, ok := a["network_aliases"].([]any); !ok {
+			t.Errorf("asset %v network_aliases is not a JSON list (got %T) — must be [] not null", a["external_id"], a["network_aliases"])
+		}
+		ce, ok := a["classification_evidence"].(map[string]any)
+		if !ok {
+			t.Fatalf("asset %v classification_evidence missing (got %T) — every asset carries it", a["external_id"], a["classification_evidence"])
+		}
+		if ce["asset_type"] != assetTypeUnknown {
+			t.Errorf("asset %v asset_type = %v, want %q (D-02)", a["external_id"], ce["asset_type"], assetTypeUnknown)
+		}
+		if a["asset_type"] != assetTypeUnknown {
+			t.Errorf("asset %v top-level asset_type = %v, want %q (D-02)", a["external_id"], a["asset_type"], assetTypeUnknown)
+		}
+		if _, ok := ce["evidence"].(map[string]any); !ok {
+			t.Errorf("asset %v classification evidence is not a JSON object (got %T) — must be {} not null", a["external_id"], ce["evidence"])
+		}
+		if _, ok := ce["security_flags"].([]any); !ok {
+			t.Errorf("asset %v security_flags is not a JSON list (got %T) — must be [] not null", a["external_id"], ce["security_flags"])
+		}
+		if a["managed"] != false || a["internet_facing"] != false {
+			t.Errorf("asset %v managed=%v internet_facing=%v, want both false", a["external_id"], a["managed"], a["internet_facing"])
+		}
+	}
+
+	// Local host: real MAC + vendor.
+	local, ok := byID["mac:28:6f:b9:00:00:01"]
+	if !ok {
+		t.Fatalf("local host not re-keyed to mac:<mac>; ids=%v", keysOf(byID))
+	}
+	if local["mac_address"] != "28:6f:b9:00:00:01" {
+		t.Errorf("local mac_address = %v, want 28:6f:b9:00:00:01", local["mac_address"])
+	}
+	if v, _ := local["mac_vendor"].(string); v == "" || v == macVendorNotOnLocalSegment {
+		t.Errorf("local mac_vendor = %q, want a real OUI vendor", v)
+	}
+
+	// Routed host: null MAC, sentinel vendor, l2_segment=routed evidence.
+	routed, ok := byID["ip:203.0.113.9"]
+	if !ok {
+		t.Fatalf("routed host missing; ids=%v", keysOf(byID))
+	}
+	if routed["mac_address"] != nil {
+		t.Errorf("routed mac_address = %v, want null", routed["mac_address"])
+	}
+	if routed["mac_vendor"] != macVendorNotOnLocalSegment {
+		t.Errorf("routed mac_vendor = %v, want sentinel %q", routed["mac_vendor"], macVendorNotOnLocalSegment)
+	}
+	rce := routed["classification_evidence"].(map[string]any)
+	rev := rce["evidence"].(map[string]any)
+	if rev[evidenceKeyL2Segment] != evidenceValueRouted {
+		t.Errorf("routed evidence[%q] = %v, want %q", evidenceKeyL2Segment, rev[evidenceKeyL2Segment], evidenceValueRouted)
+	}
+}
+
 // TestDetectDegrade proves ENG-06 graceful degradation through the REAL sweep:
 // with a fully-degraded capability set (no ICMP socket, no system ping) the
 // sweep has no viable probe and yields zero hosts, so Run returns nil and the
