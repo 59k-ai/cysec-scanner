@@ -141,11 +141,15 @@ func keysOf(m map[string]map[string]any) []string {
 	return ks
 }
 
-// TestEnrichL2States proves the three distinct L2 states: a local host carries a
-// real MAC + OUI vendor with a stabilized mac:<mac> identity and no classification
-// evidence; a routed host carries a null MAC, the sentinel vendor, and an
-// l2_segment=routed evidence key; a not-observed host (within a local segment but
-// absent from the ARP cache) stays fully null with no l2_segment key.
+// TestEnrichL2States proves the three distinct L2 states, now distinguished by
+// the l2_segment evidence key and the MAC states rather than by presence/absence
+// of classification evidence (DISC-05: EVERY asset carries classification
+// evidence). A local host carries a real MAC + OUI vendor with a stabilized
+// mac:<mac> identity, classification evidence WITHOUT an l2_segment key, and a
+// mac_vendor evidence entry; a routed host carries a null MAC, the sentinel
+// vendor, and an l2_segment=routed evidence key; a not-observed host (within a
+// local segment but absent from the ARP cache) stays MAC-null with classification
+// evidence that has NO l2_segment key and NO mac_vendor entry.
 func TestEnrichL2States(t *testing.T) {
 	live := []netutil.SweepResult{
 		{IP: "10.0.0.5", TTL: 64},    // local: has an ARP entry
@@ -155,7 +159,8 @@ func TestEnrichL2States(t *testing.T) {
 	arp := map[string]string{"10.0.0.5": "28:6f:b9:00:00:01"}
 	assets := runWithL2(t, live, arp, []string{"10.0.0.0/24"})
 
-	// Local host: re-keyed to mac:<mac>, real MAC + vendor, no classification.
+	// Local host: re-keyed to mac:<mac>, real MAC + vendor, classification
+	// evidence carrying a mac_vendor entry but NO l2_segment key.
 	local, ok := assets["mac:28:6f:b9:00:00:01"]
 	if !ok {
 		t.Fatalf("local host not re-keyed to mac:<mac>; keys=%v", keysOf(assets))
@@ -166,8 +171,19 @@ func TestEnrichL2States(t *testing.T) {
 	if v, _ := local["mac_vendor"].(string); v == "" || v == macVendorNotOnLocalSegment {
 		t.Errorf("local mac_vendor = %q, want a real OUI vendor", v)
 	}
-	if local["classification_evidence"] != nil {
-		t.Errorf("local host must carry no classification evidence, got %v", local["classification_evidence"])
+	lce, ok := local["classification_evidence"].(map[string]any)
+	if !ok {
+		t.Fatalf("local classification_evidence missing (got %T) — every asset carries evidence now", local["classification_evidence"])
+	}
+	if lce["asset_type"] != assetTypeUnknown {
+		t.Errorf("local asset_type = %v, want %q", lce["asset_type"], assetTypeUnknown)
+	}
+	lev, _ := lce["evidence"].(map[string]any)
+	if _, has := lev[evidenceKeyL2Segment]; has {
+		t.Errorf("local host must NOT carry an l2_segment key, got %v", lev[evidenceKeyL2Segment])
+	}
+	if lev[evidenceKeyMACVendor] == nil || lev[evidenceKeyMACVendor] == "" {
+		t.Errorf("local host must carry a mac_vendor evidence entry, got %v", lev[evidenceKeyMACVendor])
 	}
 
 	// Routed host: null MAC, sentinel vendor, l2_segment=routed evidence.
@@ -190,16 +206,26 @@ func TestEnrichL2States(t *testing.T) {
 		t.Errorf("routed evidence[%q] = %v, want %q", evidenceKeyL2Segment, ev[evidenceKeyL2Segment], evidenceValueRouted)
 	}
 
-	// Not-observed host: fully null, no l2_segment evidence key.
+	// Not-observed host: MAC-null (never L2-assigned), with classification
+	// evidence that has NO l2_segment key and NO mac_vendor entry — the honest
+	// "not observed" L2 state, distinct from routed.
 	notObs, ok := assets["ip:10.0.0.7"]
 	if !ok {
 		t.Fatalf("not-observed host missing; keys=%v", keysOf(assets))
 	}
 	if notObs["mac_address"] != nil || notObs["mac_vendor"] != nil {
-		t.Errorf("not-observed host must be fully null, got mac=%v vendor=%v", notObs["mac_address"], notObs["mac_vendor"])
+		t.Errorf("not-observed host must have null MAC + null vendor, got mac=%v vendor=%v", notObs["mac_address"], notObs["mac_vendor"])
 	}
-	if notObs["classification_evidence"] != nil {
-		t.Errorf("not-observed host must carry no l2_segment evidence, got %v", notObs["classification_evidence"])
+	nce, ok := notObs["classification_evidence"].(map[string]any)
+	if !ok {
+		t.Fatalf("not-observed classification_evidence missing (got %T)", notObs["classification_evidence"])
+	}
+	nev, _ := nce["evidence"].(map[string]any)
+	if _, has := nev[evidenceKeyL2Segment]; has {
+		t.Errorf("not-observed host must NOT carry an l2_segment key, got %v", nev[evidenceKeyL2Segment])
+	}
+	if _, has := nev[evidenceKeyMACVendor]; has {
+		t.Errorf("not-observed host must NOT carry a mac_vendor entry, got %v", nev[evidenceKeyMACVendor])
 	}
 }
 

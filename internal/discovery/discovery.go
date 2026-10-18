@@ -94,14 +94,21 @@ func Run(ctx context.Context, st *scanstate.ScanState, caps capabilities.Capabil
 	// mac:<mac> identity where one was assigned) and BEFORE the final AddAsset.
 	enrichHostnames(ctx, entries)
 
-	// Finalize into assets at the end, in deterministic order.
+	// Finalize into assets at the end, in deterministic order. Classification
+	// enrichment (DISC-05) runs LAST: it assembles each asset's
+	// classification_evidence from the signals the L2 + hostname passes already
+	// recorded (vendor, reply TTL, mDNS/NetBIOS hit flags), MERGING into the
+	// same AssetItem.Classification so a routed host's l2_segment key survives.
 	ids := make([]string, 0, len(entries))
 	for id := range entries {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 	for _, id := range ids {
-		st.AddAsset(buildAsset(id, entries[id]))
+		e := entries[id]
+		a := buildAsset(id, e)
+		classifyAsset(&a, e)
+		st.AddAsset(a)
 	}
 	return nil
 }
