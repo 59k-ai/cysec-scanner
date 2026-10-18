@@ -210,13 +210,58 @@ func aggressiveTier() Tier {
 	}
 }
 
-// Adjust is the adaptive throttle-down hook (D-05). It reads the sliding window
-// of recent outcomes and eases the live limiter rate down under stress, then
-// recovers slowly when the network calms. It is a documented no-op stub this
-// phase; the orchestrator already feeds the window and calls this hook on every
-// probe, so the adaptive logic lands here later without touching the
-// orchestrator.
+// Adjust is the adaptive throttle-down hook (D-05): it eases the live shared
+// limiter DOWN under genuine network stress and recovers it slowly when the
+// network is calm. It is NOT exponential retry — it reshapes the scan-wide rate.
+//
+// The stress signal is the ERRORED ratio (errored/total): connection resets,
+// local resource exhaustion, and unreachable errors — symptoms a target shows
+// when it is buckling under load. Ordinary filtered-port TIMEOUTS are explicitly
+// NOT a stress signal: a healthy LAN host with filtered ports simply times out,
+// and `refused`/`open` are positive reachability proof. So a full window of pure
+// filtered-port timeouts with zero errored outcomes is HEALTHY and is never
+// throttled down (it holds, or recovers toward the ceiling) — ordinary scans of
+// hosts with filtered ports are not penalized.
+//
+// Logic, keyed on the errored ratio once the window has enough samples:
+//   - total < BackoffWindow  -> too few samples, leave the rate unchanged.
+//   - ratio >= StressThreshold -> multiply the live rate by BackoffFactor,
+//     clamped so it never drops below FloorPPS; repeated stress approaches the
+//     floor and stops there.
+//   - ratio <= RecoverThreshold -> add RecoverStep to the live rate, clamped so
+//     it never rises above the tier's configured PPS ceiling; repeated calm
+//     approaches the ceiling and stops there.
+//   - otherwise (the mid band) -> hold steady.
+//
+// Pure and deterministic given a window: it reads w.counts() and calls
+// rate.Limiter.SetLimit (goroutine-safe). The orchestrator already holds the
+// results mutex while calling this and owns the window's lifecycle, so no
+// locking is added here.
 func (t Tier) Adjust(l *rate.Limiter, w *outcomeWindow) {
-	_ = l
-	_ = w
+	_, _, _, errored, total := w.counts()
+	if total < t.BackoffWindow {
+		return // not enough recent outcomes to judge network health yet
+	}
+
+	ratio := float64(errored) / float64(total)
+	cur := float64(l.Limit())
+
+	switch {
+	case ratio >= t.StressThreshold:
+		next := cur * t.BackoffFactor
+		if next < t.FloorPPS {
+			next = t.FloorPPS
+		}
+		if next != cur {
+			l.SetLimit(rate.Limit(next))
+		}
+	case ratio <= t.RecoverThreshold:
+		next := cur + t.RecoverStep
+		if next > t.PPS {
+			next = t.PPS
+		}
+		if next != cur {
+			l.SetLimit(rate.Limit(next))
+		}
+	}
 }
