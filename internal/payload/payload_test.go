@@ -272,3 +272,103 @@ func deref(p *string) string {
 	}
 	return *p
 }
+
+// TestStrictValidV6 is the scanner-side half of the cross-repo v6 contract: a
+// payload with the v6 fingerprint-provenance fields SET serializes them
+// value-faithfully, and one with them UNSET serializes each to null (value +
+// source + confidence null TOGETHER — the prefer-unknown encoding), while every
+// required slice still serializes to [] and the whole body round-trips. The
+// scanner emits the SAME field names the Collector's strict reference schema
+// declared, so a scanner-emitted v6 body validates under that unknown-fields-
+// forbidden model (Pitfall 1 guard).
+func TestStrictValidV6(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unset v6 fields serialize null together", func(t *testing.T) {
+		t.Parallel()
+		svc, _ := json.Marshal(ServiceItem{})
+		exp, _ := json.Marshal(ServiceExposureItem{})
+		for _, tag := range []string{"service_identity_source", "service_identity_confidence"} {
+			if !strings.Contains(string(svc), `"`+tag+`":null`) {
+				t.Errorf("unset service.%s not null; json=%s", tag, string(svc))
+			}
+			if !strings.Contains(string(exp), `"`+tag+`":null`) {
+				t.Errorf("unset service_exposure.%s not null; json=%s", tag, string(exp))
+			}
+		}
+		asset, _ := json.Marshal(AssetItem{})
+		for _, tag := range []string{"os_guess", "os_guess_source", "os_guess_confidence"} {
+			if !strings.Contains(string(asset), `"`+tag+`":null`) {
+				t.Errorf("unset asset.%s not null; json=%s", tag, string(asset))
+			}
+		}
+		pl, _ := json.Marshal(NewEmpty("full", "engine/test"))
+		if !strings.Contains(string(pl), `"scan_metadata":null`) {
+			t.Errorf("unset scan_metadata not null; json=%s", string(pl))
+		}
+	})
+
+	t.Run("set v6 fields serialize value-faithfully and round-trip", func(t *testing.T) {
+		t.Parallel()
+		in := NewEmpty("full", "engine/test")
+		in.ScanMetadata = &ScanMetadata{RecogDBVersion: ptr("cf937c0"), OSSignatureDBVersion: ptr("osfp-v1")}
+		in.Assets = []AssetItem{{
+			ExternalID:        "ip:10.0.0.5",
+			OSGuess:           ptr("Linux"),
+			OSGuessSource:     ptr("osfp-ttl-v1"),
+			OSGuessConfidence: ptr(0.6),
+			Services: []ServiceItem{{
+				Port:                      22,
+				Product:                   ptr("OpenSSH"),
+				ServiceVersion:            ptr("9.6p1"),
+				CPE:                       ptr("cpe:/a:openbsd:openssh:9.6p1"),
+				ServiceIdentitySource:     ptr("recog-v1"),
+				ServiceIdentityConfidence: ptr(0.9),
+			}},
+		}}
+		in.ServiceExposures = []ServiceExposureItem{{
+			AssetExternalID:           "ip:10.0.0.5",
+			Port:                      22,
+			ServiceIdentitySource:     ptr("recog-v1"),
+			ServiceIdentityConfidence: ptr(0.9),
+		}}
+		in.Normalize()
+
+		raw, err := json.Marshal(in)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		s := string(raw)
+		for _, want := range []string{
+			`"schema_version":6`,
+			`"recog_db_version":"cf937c0"`,
+			`"os_signature_db_version":"osfp-v1"`,
+			`"os_guess":"Linux"`,
+			`"os_guess_source":"osfp-ttl-v1"`,
+			`"os_guess_confidence":0.6`,
+			`"service_identity_source":"recog-v1"`,
+			`"service_identity_confidence":0.9`,
+			`"assets":[`,
+			`"service_exposures":[`,
+		} {
+			if !strings.Contains(s, want) {
+				t.Errorf("missing %q; json=%s", want, s)
+			}
+		}
+
+		var out Payload
+		if err := json.Unmarshal(raw, &out); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if out.ScanMetadata == nil || deref(out.ScanMetadata.RecogDBVersion) != "cf937c0" {
+			t.Errorf("scan_metadata lost in round-trip: %+v", out.ScanMetadata)
+		}
+		if len(out.Assets) != 1 || out.Assets[0].OSGuessConfidence == nil || *out.Assets[0].OSGuessConfidence != 0.6 {
+			t.Errorf("os_guess_confidence lost in round-trip: %+v", out.Assets)
+		}
+		svc := out.Assets[0].Services[0]
+		if svc.ServiceIdentityConfidence == nil || *svc.ServiceIdentityConfidence != 0.9 {
+			t.Errorf("service_identity_confidence lost in round-trip: %+v", svc)
+		}
+	})
+}

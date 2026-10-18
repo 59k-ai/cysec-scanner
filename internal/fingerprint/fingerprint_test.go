@@ -142,6 +142,34 @@ func TestPrecedenceMissKeepsPhase4Value(t *testing.T) {
 	assertStrictValidV6(t, pl)
 }
 
+// TestPrecedenceOverwritesPhase4 proves an above-cut database match OVERWRITES a
+// pre-existing lower-fidelity (port-stage) value and re-labels the source
+// (D-11), end-to-end through the stage against the real database.
+func TestPrecedenceOverwritesPhase4(t *testing.T) {
+	t.Parallel()
+
+	phase4Source := "port-banner-v1"
+	phase4Conf := 0.3
+	st := seedAsset(t, "SSH-2.0-OpenSSH_5.9p1", payload.ServiceItem{
+		Port:                      22,
+		Protocol:                  "tcp",
+		ServiceName:               "ssh",
+		Product:                   strptr("GenericSSH"),
+		ServiceVersion:            strptr("0.0"),
+		ServiceIdentitySource:     &phase4Source,
+		ServiceIdentityConfidence: &phase4Conf,
+	})
+	pl := runStage(t, st)
+	svc := pl.Assets[0].Services[0]
+	if deref(svc.Product) != "OpenSSH" || deref(svc.ServiceVersion) != "5.9p1" {
+		t.Errorf("above-cut match did not overwrite the Phase-4 value: %+v", svc)
+	}
+	if deref(svc.ServiceIdentitySource) != sourceRecogV1 {
+		t.Errorf("source not re-labeled to %q: %q", sourceRecogV1, deref(svc.ServiceIdentitySource))
+	}
+	assertStrictValidV6(t, pl)
+}
+
 // TestPrecedenceAtCutIsInclusive proves the 0.5 confidence cut is inclusive: a
 // synthetic match at exactly the cut is promoted; one just below is not.
 func TestPrecedenceAtCutIsInclusive(t *testing.T) {
