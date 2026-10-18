@@ -53,7 +53,7 @@ func TestEmptyPayloadSerialization(t *testing.T) {
 
 // TestNilSliceWouldSerializeNull documents WHY NewEmpty initialises slices to
 // the empty literal: a zero-value Payload (nil slices) marshals its required
-// lists to null, which the strict Pydantic model rejects. This is the exact
+// lists to null, which the strict reference schema rejects. This is the exact
 // failure the [] invariant prevents.
 func TestNilSliceWouldSerializeNull(t *testing.T) {
 	t.Parallel()
@@ -181,8 +181,8 @@ func TestPopulatedRoundTrip(t *testing.T) {
 // TestNormalizePopulatedAssetNestedSlicesNotNull is the WR-02 proof: a
 // POPULATED asset whose nested required containers are left nil (the latent
 // Phase-3 data-loss hazard) marshals every one of them to the empty literal
-// ("[]" / "{}"), never "null", AFTER Normalize(). The strict Pydantic model
-// 400-rejects a null for any non-Optional default_factory list/dict field, so
+// ("[]" / "{}"), never "null", AFTER Normalize(). The strict reference schema
+// 400-rejects a null for any required, default-empty list/dict field, so
 // a null here would silently drop a populated asset at ingest.
 func TestNormalizePopulatedAssetNestedSlicesNotNull(t *testing.T) {
 	t.Parallel()

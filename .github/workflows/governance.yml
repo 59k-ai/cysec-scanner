@@ -1,7 +1,7 @@
 name: governance
 
 # Data-governance gate (D-04: runs on GitHub Actions, the engine's public
-# destination — NOT the self-hosted GitLab used by cysecwatch/cysec-collector).
+# destination).
 # A broken allowlist/denylist invariant MUST redden the pipeline: this job has
 # no continue-on-error / allow-failure escape hatch.
 on:

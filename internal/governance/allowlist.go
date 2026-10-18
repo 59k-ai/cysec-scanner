@@ -36,7 +36,7 @@ func isGovernanceDoc(p string) bool {
 // Entry is one record in data/allowlist.json. Every embeddable data file has
 // exactly one Entry recording its integrity pin (SHA256), license, and
 // provenance. Parsing is strict (see LoadAllowlist): an unknown field in the
-// manifest is an error, mirroring the Collector's Pydantic extra="forbid".
+// manifest is an error, mirroring the Collector's strict unknown-fields-forbidden schema.
 type Entry struct {
 	Path             string `json:"path"`
 	SHA256           string `json:"sha256"`

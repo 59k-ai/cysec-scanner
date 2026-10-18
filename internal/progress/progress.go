@@ -1,6 +1,5 @@
 // Package progress emits NDJSON ProgressEvent objects on an output stream,
-// mirroring the Collector-side wire contract in
-// cysec-collector/cysec_collector/progress.py (ProgressEvent.to_dict).
+// mirroring the cysec.watch Collector-side ProgressEvent wire contract.
 //
 // One complete JSON object is written per line and NOTHING else is written to
 // that stream — no banners, no log lines, no payload. The engine wires this to

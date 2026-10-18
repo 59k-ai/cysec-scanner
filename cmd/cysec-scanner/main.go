@@ -1,5 +1,5 @@
 // Command cysec-scanner is the pure-Go evidence engine that runs behind the
-// closed cysec-collector wrapper. This Phase-2 skeleton (D-04) is a real
+// closed Collector wrapper. This Phase-2 skeleton (D-04) is a real
 // compiled binary, not a mock: it runs the staged pipeline under one cancelable
 // context, streams NDJSON ProgressEvents to stdout, logs to stderr via slog,
 // assembles an empty-ish strict-valid v5 payload and writes it to the
@@ -101,7 +101,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	pl := payload.NewEmpty(string(fullPayloadType), collectorVersion)
 	// WR-02 — force every required container (top-level + nested) non-nil so a
 	// populated asset from a future scanning stage never marshals a required
-	// list/map to JSON "null", which the strict Pydantic model 400-rejects.
+	// list/map to JSON "null", which the strict reference schema 400-rejects.
 	pl.Normalize()
 	data, err := json.MarshalIndent(pl, "", "  ")
 	if err != nil {

@@ -22,8 +22,6 @@ CI contract (GitHub Actions, `.github/workflows/governance.yml`).
 
 ## Versioning convention
 
-Unlike the Python sub-repos in this workspace (`cysec-collector`, `cysecwatch`),
-`cysec-scanner` is a **Go** module. It has **no `__version__.py`** and the
-workspace Python version-bump-before-commit rule does **not** apply here. The
-scanner versions via **git tags** and the `go.mod` module path; release tooling
-derives build-time version info from the git tag / commit.
+`cysec-scanner` versions via **git tags** and the `go.mod` module path; release
+tooling derives build-time version info from the git tag / commit. There is no
+in-tree version constant to bump.

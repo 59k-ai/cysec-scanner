@@ -1,11 +1,11 @@
-// Package payload is the Go-side hand-mirror of the Collector wire schema
-// defined in cysec-collector/cysec_collector/payload.py at v5.
+// Package payload is the Go-side hand-mirror of the cysec.watch Collector wire
+// schema at v5.
 //
-// The Pydantic module is the single SOURCE OF TRUTH; these structs reproduce
-// its field names, JSON tags and enum string values exactly so a marshalled
-// Payload re-validates under the strict (extra="forbid") Pydantic model. The
-// only automated guard that the two agree is scripts/validate_payload.py, which
-// runs Payload.model_validate_json against this output; keep it in CI.
+// The Collector's strict reference schema is the single SOURCE OF TRUTH; these
+// structs reproduce its field names, JSON tags and enum string values exactly
+// so a marshalled Payload re-validates under that strict (unknown-fields-
+// forbidden) schema. Agreement between the two is confirmed out-of-tree by a
+// round-trip validation against the reference schema.
 //
 // Two serialization invariants are load-bearing (D-03 / PAY-04):
 //   - Required slices are initialised to the empty literal ([]T{}, never a nil
@@ -17,10 +17,10 @@
 package payload
 
 // SchemaVersion is the wire-schema version this mirror targets. It MUST equal
-// cysec-collector's PAYLOAD_SCHEMA_VERSION (5); the cloud accepts only v5.
+// the Collector's PAYLOAD_SCHEMA_VERSION (5); the cloud accepts only v5.
 const SchemaVersion = 5
 
-// Payload is the top-level Collector -> cloud envelope (payload.py:Payload).
+// Payload is the top-level Collector -> cloud envelope.
 type Payload struct {
 	SchemaVersion       int                      `json:"schema_version"`
 	PayloadType         string                   `json:"payload_type"`
@@ -200,9 +200,8 @@ type TLSVersionResult struct {
 	Error            string `json:"error"`
 }
 
-// TLSProbeItem is an internal-host TLS posture probe result
-// (payload.py:TlsProbeItem). ProbedAt is an RFC3339 timestamp string the
-// Pydantic datetime field parses.
+// TLSProbeItem is an internal-host TLS posture probe result. ProbedAt is an
+// RFC3339 timestamp string the reference schema's datetime field parses.
 type TLSProbeItem struct {
 	AssetExternalID string             `json:"asset_external_id"`
 	Host            string             `json:"host"`
@@ -241,9 +240,9 @@ func NewEmpty(payloadType, collectorVersion string) Payload {
 // nested slices/maps: AssetItem.Services / AssetItem.NetworkAliases,
 // ClassificationEvidence.Evidence / ClassificationEvidence.SecurityFlags,
 // PasswordPolicyItem.AppliesTo, SoftwareInventoryItem.SourceEvidence and
-// TLSProbeItem.Results all mirror a non-Optional default_factory field in
-// payload.py — the strict (extra="forbid") Pydantic model 400-rejects a null
-// for any of them, which would silently drop a populated asset's evidence.
+// TLSProbeItem.Results all mirror a required, default-empty field in the
+// reference schema — the strict (unknown-fields-forbidden) schema 400-rejects a
+// null for any of them, which would silently drop a populated asset's evidence.
 // Call this immediately before marshalling the wire payload.
 func (p *Payload) Normalize() {
 	// Top-level required lists (belt-and-braces: a Phase-3 stage may replace
