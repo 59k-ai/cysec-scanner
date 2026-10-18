@@ -1,0 +1,9 @@
+# RED FIXTURE — deliberately contaminating. NOT shipped data, NOT embedded.
+# A few author-written lines in the nmap-service-probes directive format, used
+# only to prove the denylist gate BLOCKS (LIC-02). This is a signature fixture,
+# not a redistribution of the NPSL-licensed nmap-service-probes database.
+Exclude T:9100-9107
+Probe TCP NULL q||
+ports 21,22,23,25
+match ftp m|^220 [-.\w ]+ FTP| p/Generic FTP server/
+softmatch ssh m|^SSH-[\d.]+-| p/Generic SSH/

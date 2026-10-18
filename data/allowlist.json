@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "path": "data/recog/ssh_banners.xml",
+      "sha256": "a3e608cd8a46a177b6407875d7e31a34157c858cc9e3393920a99405e1f4f4b6",
+      "license": "BSD-2-Clause",
+      "copyright": "Copyright (c) 2014-2015, Rapid7",
+      "provenance_url": "https://github.com/rapid7/recog",
+      "upstream_snapshot": "cf937c078dfe321c01c60aaf387ccd3dea6d1b63",
+      "fetch_date": "2026-10-18"
+    }
+  ]
+}

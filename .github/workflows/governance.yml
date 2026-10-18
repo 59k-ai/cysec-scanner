@@ -1,0 +1,32 @@
+name: governance
+
+# Data-governance gate (D-04: runs on GitHub Actions, the engine's public
+# destination — NOT the self-hosted GitLab used by cysecwatch/cysec-collector).
+# A broken allowlist/denylist invariant MUST redden the pipeline: this job has
+# no continue-on-error / allow-failure escape hatch.
+on:
+  pull_request:
+  push:
+
+jobs:
+  governance:
+    name: license & data governance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          check-latest: true
+
+      - name: Governance tests (allowlist integrity + denylist red/green)
+        run: go test ./internal/governance/...
+
+      - name: Build (proves the module-root go:embed resolves)
+        run: go build ./...
+
+      - name: datacheck (denylist over data/ + allowlist integrity)
+        run: go run ./cmd/datacheck --root .
