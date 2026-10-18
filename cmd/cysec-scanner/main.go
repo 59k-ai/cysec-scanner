@@ -66,6 +66,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.Var(&cidrs, "cidr", "scope CIDR to scan (repeatable); empty means auto-detect the local subnet")
 	timing := fs.String("timing", "polite", "scan timing tier: polite (default)")
 	ports := fs.String("ports", "", "comma-separated ports/ranges to scan, e.g. \"22,80,443,8000-8010\"; empty uses the curated default set")
+	probeFragile := fs.Bool("probe-fragile", false, "probe fragile devices (printers/IoT/network gear) that are skipped from intrusive OS stack probing by default")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -119,7 +120,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return portscan.Run(ctx, st, caps, portscan.Options{Tier: portscan.ResolveTier(*timing), Ports: resolvedPorts})
 		}},
 		{Name: pipeline.StageFingerprint, Run: func(ctx context.Context) error {
-			return fingerprint.Run(ctx, st, caps, fingerprint.Options{})
+			return fingerprint.Run(ctx, st, caps, fingerprint.Options{ProbeFragile: *probeFragile})
 		}},
 		{Name: pipeline.StageAuthPosture, Run: func(context.Context) error { return nil }},
 	}

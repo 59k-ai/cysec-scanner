@@ -61,6 +61,7 @@ const recogDir = "data/recog"
 const (
 	evidenceKeyOSTTLFamily = "os_ttl_family"
 	evidenceKeyBannerOSCue = "banner_os_cue"
+	evidenceKeyOUIVendor   = "oui_vendor"
 )
 
 // recogProtocolByPort maps a well-known port to the Recog protocol (the database
@@ -102,7 +103,6 @@ var sshIdentRe = regexp.MustCompile(`^SSH-\d+\.\d+-(.*)$`)
 // so a fully-degraded run still yields a complete, strict-valid payload.
 func Run(ctx context.Context, st *scanstate.ScanState, caps capabilities.Capabilities, opts Options) error {
 	_ = caps // capabilities reserved for later privileged probe paths
-	_ = opts // ProbeFragile is consulted by the intrusive-probe gate (see below)
 
 	corpus, err := recog.LoadCorpus(scannerdata.DataFS, recogDir)
 	if err != nil {
@@ -150,6 +150,17 @@ func Run(ctx context.Context, st *scanstate.ScanState, caps capabilities.Capabil
 			// banner OS cue — and emit a guess only at or above the prefer-unknown
 			// cut; below it, os_guess / source / confidence stay null together.
 			applyOSGuess(ai, sigs, bannerOSCue)
+
+			// Fragile-device gate (FPRINT-05): the SINGLE predicate the later
+			// privileged OS stack-probing MUST consult before any intrusive probe.
+			// That intrusive path is EMPTY this phase (the stage is passive, and the
+			// TTL/banner os_guess above is deliberately NOT gated), so the gate has
+			// nothing to suppress yet — it is wired here so Phase-of-privileged-capture
+			// plugs its stack probe straight into this decision, overridable via
+			// --probe-fragile (opts.ProbeFragile).
+			if !shouldSkipIntrusiveProbe(ai.AssetType, ouiVendorFor(ai), opts.ProbeFragile) {
+				// Intrusive OS stack probe plugs in here (privileged-capture seam).
+			}
 		})
 	}
 	return nil
@@ -213,6 +224,13 @@ func evidenceValue(ai *payload.AssetItem, key string) string {
 		return ""
 	}
 	return ai.Classification.Evidence[key]
+}
+
+// ouiVendorFor returns the OUI vendor the port stage already resolved for the
+// asset (stored lowercased in the classification evidence), so the fragile-device
+// gate reuses it without re-probing. It is "" when no vendor was resolved.
+func ouiVendorFor(ai *payload.AssetItem) string {
+	return evidenceValue(ai, evidenceKeyOUIVendor)
 }
 
 // applyServiceIdentity promotes a service-fingerprint match into a service item
