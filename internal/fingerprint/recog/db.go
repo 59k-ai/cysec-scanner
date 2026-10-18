@@ -16,10 +16,13 @@
 package recog
 
 import (
+	"encoding/base64"
 	"encoding/xml"
 	"io/fs"
 	"regexp"
+	"sort"
 	"strconv"
+	"strings"
 )
 
 // xmlFingerprints is the root <fingerprints> element of a Recog database file.
@@ -46,6 +49,29 @@ type xmlFingerprint struct {
 type xmlExample struct {
 	Text  string     `xml:",chardata"`
 	Attrs []xml.Attr `xml:",any,attr"`
+}
+
+// exampleWhitespace matches the line-folding Recog inserts into a base64 example
+// payload; it is stripped before decoding (encoding/base64 rejects whitespace).
+var exampleWhitespace = regexp.MustCompile(`\s+`)
+
+// decodedBanner returns the example's banner text. Some Recog examples carry a
+// binary or multi-line sample banner as base64 (declared via _encoding="base64",
+// line-folded), so a base64 example is whitespace-stripped and decoded. The bool
+// is false only when a declared base64 payload cannot be decoded — the corpus
+// self-test treats that as a hard error (the encoding was declared but is
+// unreadable), distinct from a plain-text example which is always returned as-is.
+func (ex xmlExample) decodedBanner() (string, bool) {
+	for _, a := range ex.Attrs {
+		if a.Name.Local == "_encoding" && a.Value == "base64" {
+			dec, err := base64.StdEncoding.DecodeString(exampleWhitespace.ReplaceAllString(ex.Text, ""))
+			if err != nil {
+				return "", false
+			}
+			return string(dec), true
+		}
+	}
+	return ex.Text, true
 }
 
 // xmlParam is one <param>: a static value (value set) is used verbatim; an empty
@@ -139,3 +165,107 @@ func (db *DB) Total() int { return db.total }
 
 // Protocol reports the database's declared protocol (e.g. "ssh").
 func (db *DB) Protocol() string { return db.protocol }
+
+// Corpus is a set of Recog databases loaded from an embedded directory tree. The
+// databases are held in a fixed (sorted-path) order so a banner that matches a
+// fingerprint in more than one file resolves to a deterministic, run-stable
+// winner (corpus-wide first-match-wins). It is read-only after LoadCorpus.
+type Corpus struct {
+	paths []string
+	dbs   []*DB
+}
+
+// LoadCorpus walks dir within fsys and loads EVERY *.xml file as a Recog database
+// in sorted path order (so iteration — hence first-match-wins — is deterministic
+// across runs). Each file passes through the same compile-guarded Load, so a
+// pattern stdlib RE2 cannot compile is skipped and counted per file rather than
+// failing the whole corpus (D-14 never-raises). LoadCorpus returns an error only
+// when the directory cannot be walked or a file is not well-formed XML.
+func LoadCorpus(fsys fs.FS, dir string) (*Corpus, error) {
+	var paths []string
+	err := fs.WalkDir(fsys, dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(p, ".xml") {
+			return nil
+		}
+		paths = append(paths, p)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(paths)
+
+	c := &Corpus{}
+	for _, p := range paths {
+		db, err := Load(fsys, p)
+		if err != nil {
+			return nil, err
+		}
+		c.paths = append(c.paths, p)
+		c.dbs = append(c.dbs, db)
+	}
+	return c, nil
+}
+
+// Match returns the identity of the first fingerprint that matches banner across
+// the whole corpus, searching databases in sorted-path order and, within each,
+// in declaration order (stable corpus-wide first-match-wins). It returns the zero
+// Identity and false on no match, an empty banner, or an empty corpus. Like
+// DB.Match it never raises: RE2 matching is linear-time and every captured value
+// is sanitized and capped.
+func (c *Corpus) Match(banner string) (Identity, bool) {
+	if c == nil {
+		return Identity{}, false
+	}
+	for _, db := range c.dbs {
+		if id, ok := db.Match(banner); ok {
+			return id, true
+		}
+	}
+	return Identity{}, false
+}
+
+// DroppedByFile reports the per-file RE2 drop count (fingerprints whose pattern
+// did not compile), keyed by embedded data path. The corpus self-test asserts
+// each file's count stays at or below a documented ceiling.
+func (c *Corpus) DroppedByFile() map[string]int {
+	out := make(map[string]int, len(c.paths))
+	for i, p := range c.paths {
+		out[p] = c.dbs[i].Dropped()
+	}
+	return out
+}
+
+// TotalDropped reports the number of fingerprints dropped across the whole corpus
+// because their pattern did not compile under RE2.
+func (c *Corpus) TotalDropped() int {
+	n := 0
+	for _, db := range c.dbs {
+		n += db.Dropped()
+	}
+	return n
+}
+
+// TotalFingerprints reports the number of fingerprints declared across the whole
+// corpus (including any dropped at compile time).
+func (c *Corpus) TotalFingerprints() int {
+	n := 0
+	for _, db := range c.dbs {
+		n += db.Total()
+	}
+	return n
+}
+
+// DatabaseForProtocol returns the loaded database whose declared protocol equals
+// proto (e.g. "http", "ftp", "pop3"), or nil when the corpus has no such file.
+func (c *Corpus) DatabaseForProtocol(proto string) *DB {
+	for _, db := range c.dbs {
+		if db.protocol == proto {
+			return db
+		}
+	}
+	return nil
+}
