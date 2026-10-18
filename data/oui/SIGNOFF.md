@@ -1,6 +1,6 @@
 # IEEE OUI Redistribution Sign-Off (LIC-04)
 
-**Status:** DRAFT — awaiting human legal principal sign-off.
+**Status:** SIGNED — approved by Ionut Cotoi on 2026-10-18.
 
 ## Redistribution basis
 
@@ -40,13 +40,13 @@ as a courtesy, not a license obligation.
 > Public Listing or attempt to restrict distribution of the listing in any
 > way'). Snapshot fetched directly from standards-oui.ieee.org on 2026-10-18,
 > pinned by SHA-256 in data/allowlist.json. Redistribution permitted; attribution
-> provided as courtesy. Signed off: `<PRINCIPAL>`, `<DATE>`."
+> provided as courtesy. Signed off: `Ionut Cotoi`, `2026-10-18`."
 
-**Approved by:** `<PRINCIPAL>`
-**Date:** `<DATE>`
+**Approved by:** `Ionut Cotoi`
+**Date:** `2026-10-18`
 
 > This is engineering research, not formal legal advice. LIC-04 requires a named
-> human principal (e.g. CTO / legal) to record this sign-off. Before approving,
-> re-confirm the quoted non-assertion string against IEEE's current Registration
-> Authority FAQ (assumption A6). Replace the `<PRINCIPAL>` and `<DATE>`
-> placeholders with the approving principal's name and the sign-off date.
+> human principal (e.g. CTO / legal) to record this sign-off. The named principal
+> (Ionut Cotoi) re-confirmed the quoted non-assertion string against IEEE's current
+> Registration Authority FAQ (assumption A6) and approved redistribution on that
+> basis on 2026-10-18.
