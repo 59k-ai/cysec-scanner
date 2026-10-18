@@ -47,8 +47,12 @@ human-recorded redistribution sign-off are maintained in
 ### Recog service fingerprints (Rapid7)
 
 - **Source:** https://github.com/rapid7/recog
-- **Data path:** `data/recog/ssh_banners.xml`
+- **Data paths:** `data/recog/ssh_banners.xml`, `data/recog/http_servers.xml`, `data/recog/ftp_banners.xml`, `data/recog/smtp_banners.xml`, `data/recog/telnet_banners.xml`, `data/recog/pop_banners.xml`, `data/recog/imap_banners.xml`
 - **License:** BSD-2-Clause
+
+All vendored Recog files are fetched from the same pinned upstream commit
+(`data/allowlist.json` → `upstream_snapshot`), so the whole corpus shares one
+provenance id.
 
 BSD-2-Clause requires retaining the copyright notice, the list of conditions,
 and the disclaimer below in redistributions:
