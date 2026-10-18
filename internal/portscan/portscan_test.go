@@ -199,15 +199,24 @@ func (netTimeout) Error() string   { return "i/o timeout" }
 func (netTimeout) Timeout() bool   { return true }
 func (netTimeout) Temporary() bool { return true }
 
-// TestClassifyDialError proves the graded outcome mapping: a fast RST is refused,
-// a deadline / net-timeout is timeout, and anything else is error.
+// TestClassifyDialError proves the graded outcome mapping: a fast RST is refused
+// (on POSIX via ECONNREFUSED and on Windows via WSAECONNREFUSED, including when
+// wrapped in an *os.SyscallError chain the way net.Dialer surfaces it), a
+// deadline / net-timeout is timeout, and anything else is error. The synthetic
+// syscall.Errno(10061) case proves the Windows path deterministically without a
+// Windows host — errors.Is(err, syscall.ECONNREFUSED) is false for it, so only
+// the errno comparison in isConnRefused grades it refused.
 func TestClassifyDialError(t *testing.T) {
+	wsarefused := syscall.Errno(10061) // WSAECONNREFUSED, the Windows refused-connect code
 	cases := []struct {
 		name string
 		err  error
 		want probeOutcome
 	}{
 		{"refused", syscall.ECONNREFUSED, outcomeRefused},
+		{"refused-wrapped", &os.SyscallError{Syscall: "connect", Err: syscall.ECONNREFUSED}, outcomeRefused},
+		{"windows-refused", wsarefused, outcomeRefused},
+		{"windows-refused-wrapped", &os.SyscallError{Syscall: "connect", Err: wsarefused}, outcomeRefused},
 		{"ctx-deadline", context.DeadlineExceeded, outcomeTimeout},
 		{"os-deadline", os.ErrDeadlineExceeded, outcomeTimeout},
 		{"net-timeout", netTimeout{}, outcomeTimeout},

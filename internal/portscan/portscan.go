@@ -259,16 +259,35 @@ func dialProbe(ctx context.Context, host string, port int, tier Tier) (probeOutc
 	return outcomeOpen, grabBanner(ctx, conn, host, port, tier)
 }
 
+// wsaeconnrefused is the winsock error code (WSAECONNREFUSED, 10061) a refused
+// connect surfaces on Windows. The Go stdlib's syscall.ECONNREFUSED is a
+// separate invented constant there and Errno.Is does not bridge the two, so a
+// genuine Windows RST must be matched on the raw errno explicitly.
+const wsaeconnrefused = syscall.Errno(10061)
+
+// isConnRefused reports whether a dial error is a refused connection on any
+// platform: errors.Is handles the POSIX ECONNREFUSED chain, and a direct errno
+// comparison catches the Windows winsock code (WSAECONNREFUSED, 10061) that
+// errors.Is does not map. The errno comparison is a plain integer check that
+// compiles and runs on every platform, so the Windows path is testable on Linux.
+func isConnRefused(err error) bool {
+	if errors.Is(err, syscall.ECONNREFUSED) {
+		return true
+	}
+	var errno syscall.Errno
+	return errors.As(err, &errno) && errno == wsaeconnrefused
+}
+
 // classifyDialError grades a dial failure so the backoff can tell a healthy
-// network from a stressed one: a fast RST (ECONNREFUSED, including Windows'
-// WSAECONNREFUSED which maps onto the same errno) is a reachable closed port, a
-// timeout (deadline or net.Error timeout) is filtered/ambiguous, and anything
-// else is the genuine-stress bucket.
+// network from a stressed one: a fast RST (refused — POSIX ECONNREFUSED or
+// Windows WSAECONNREFUSED, matched via isConnRefused) is a reachable closed
+// port, a timeout (deadline or net.Error timeout) is filtered/ambiguous, and
+// anything else is the genuine-stress bucket.
 func classifyDialError(err error) probeOutcome {
 	if err == nil {
 		return outcomeOpen
 	}
-	if errors.Is(err, syscall.ECONNREFUSED) {
+	if isConnRefused(err) {
 		return outcomeRefused
 	}
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
