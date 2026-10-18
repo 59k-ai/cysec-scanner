@@ -17,8 +17,8 @@ import (
 )
 
 // Kind is the coarse progress taxonomy; its value is the JSON wire string. The
-// values mirror EventKind in progress.py (phase_start/phase_done/agent_start/
-// agent_done).
+// values mirror the Collector's ProgressEvent kind vocabulary (phase_start/
+// phase_done/agent_start/agent_done).
 type Kind string
 
 const (
@@ -28,9 +28,9 @@ const (
 	AgentDone  Kind = "agent_done"
 )
 
-// event is the on-the-wire shape; keys mirror progress.py to_dict exactly. Agent
-// is a pointer so it marshals to JSON null on phase_* events (agent is None in
-// the Python model on those).
+// event is the on-the-wire shape; keys mirror the Collector's ProgressEvent wire
+// contract exactly. Agent is a pointer so it marshals to JSON null on phase_*
+// events (the reference contract carries no agent on those).
 type event struct {
 	Kind     Kind    `json:"kind"`
 	Seq      int     `json:"seq"`

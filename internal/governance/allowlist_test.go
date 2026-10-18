@@ -113,7 +113,8 @@ func TestAllowlistOrderingIndependent(t *testing.T) {
 }
 
 // TestLoadAllowlistStrict proves the strict parser rejects unknown keys and
-// duplicate paths (extra="forbid" parity).
+// duplicate paths (strict unknown-field-rejection parity with the Collector's
+// reference schema).
 func TestLoadAllowlistStrict(t *testing.T) {
 	t.Parallel()
 

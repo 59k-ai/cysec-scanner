@@ -35,12 +35,12 @@ type Payload struct {
 	MissingKbs          []MissingKbItem          `json:"missing_kbs"`
 	TLSProbes           []TLSProbeItem           `json:"tls_probes"`
 	// PayloadIDHash is nil until the Collector runner stamps the canonical-JSON
-	// SHA-256; nil marshals to JSON null (payload.py: Optional[str] = None).
+	// SHA-256; nil marshals to JSON null (reference schema: optional, default-null).
 	PayloadIDHash *string `json:"payload_id_hash"`
 }
 
 // ServiceItem is a network service nested under AssetItem.services
-// (payload.py:ServiceItem).
+// (reference schema: ServiceItem).
 type ServiceItem struct {
 	Port          int    `json:"port"`
 	Protocol      string `json:"protocol"`
@@ -54,14 +54,14 @@ type ServiceItem struct {
 }
 
 // NetworkAliasItem is a secondary (hostname, address) pair for the same
-// physical host (payload.py:NetworkAliasItem).
+// physical host (reference schema: NetworkAliasItem).
 type NetworkAliasItem struct {
 	Hostname string `json:"hostname"`
 	Address  string `json:"address"`
 }
 
 // ClassificationEvidence is the per-asset classification verdict
-// (payload.py:ClassificationEvidence). Carried as a pointer on AssetItem so an
+// (reference schema: ClassificationEvidence). Carried as a pointer on AssetItem so an
 // unset verdict marshals to JSON null (Optional in the model).
 type ClassificationEvidence struct {
 	AssetType     string            `json:"asset_type"`
@@ -71,7 +71,7 @@ type ClassificationEvidence struct {
 	SecurityFlags []string          `json:"security_flags"`
 }
 
-// AssetItem is one discovered/inventoried host (payload.py:AssetItem).
+// AssetItem is one discovered/inventoried host (reference schema: AssetItem).
 type AssetItem struct {
 	ExternalID        string                  `json:"external_id"`
 	Hostname          string                  `json:"hostname"`
@@ -90,7 +90,7 @@ type AssetItem struct {
 	MACVendor  *string `json:"mac_vendor"`
 }
 
-// IdentityItem is one identity record (payload.py:IdentityItem).
+// IdentityItem is one identity record (reference schema: IdentityItem).
 type IdentityItem struct {
 	ExternalID   string  `json:"external_id"`
 	Username     string  `json:"username"`
@@ -106,7 +106,7 @@ type IdentityItem struct {
 }
 
 // ServiceExposureItem is a top-level flattened service exposure
-// (payload.py:ServiceExposureItem). It carries the same three v5 structured
+// (reference schema: ServiceExposureItem). It carries the same three v5 structured
 // service fields as ServiceItem (D-02 — both representations have full fidelity).
 type ServiceExposureItem struct {
 	AssetExternalID string `json:"asset_external_id"`
@@ -122,7 +122,7 @@ type ServiceExposureItem struct {
 	CPE            *string `json:"cpe"`
 }
 
-// VulnerabilityItem is one CVE finding (payload.py:VulnerabilityItem).
+// VulnerabilityItem is one CVE finding (reference schema: VulnerabilityItem).
 type VulnerabilityItem struct {
 	AssetExternalID string   `json:"asset_external_id"`
 	AssetID         string   `json:"asset_id"`
@@ -137,23 +137,23 @@ type VulnerabilityItem struct {
 }
 
 // ConfigurationCheckItem is one configuration check result
-// (payload.py:ConfigurationCheckItem).
+// (reference schema: ConfigurationCheckItem).
 type ConfigurationCheckItem struct {
-	AssetExternalID string  `json:"asset_external_id"`
-	AssetID         string  `json:"asset_id"`
-	CheckCode       string  `json:"check_code"`
-	Title           string  `json:"title"`
-	Status          string  `json:"status"`
-	Description     string  `json:"description"`
-	Severity        string  `json:"severity"`
-	ExpectedValue   string  `json:"expected_value"`
-	ObservedValue   string  `json:"observed_value"`
-	ServicePort     *int    `json:"service_port"`
-	ServiceProtocol string  `json:"service_protocol"`
+	AssetExternalID string `json:"asset_external_id"`
+	AssetID         string `json:"asset_id"`
+	CheckCode       string `json:"check_code"`
+	Title           string `json:"title"`
+	Status          string `json:"status"`
+	Description     string `json:"description"`
+	Severity        string `json:"severity"`
+	ExpectedValue   string `json:"expected_value"`
+	ObservedValue   string `json:"observed_value"`
+	ServicePort     *int   `json:"service_port"`
+	ServiceProtocol string `json:"service_protocol"`
 }
 
 // PasswordPolicyItem is a default-domain or PSO password policy
-// (payload.py:PasswordPolicyItem).
+// (reference schema: PasswordPolicyItem).
 type PasswordPolicyItem struct {
 	PolicyName         string   `json:"policy_name"`
 	Scope              string   `json:"scope"`
@@ -169,7 +169,7 @@ type PasswordPolicyItem struct {
 }
 
 // SoftwareInventoryItem is a per-host installed-software entry
-// (payload.py:SoftwareInventoryItem).
+// (reference schema: SoftwareInventoryItem).
 type SoftwareInventoryItem struct {
 	AssetExternalID string            `json:"asset_external_id"`
 	DisplayName     string            `json:"display_name"`
@@ -180,7 +180,7 @@ type SoftwareInventoryItem struct {
 	SourceEvidence  map[string]string `json:"source_evidence"`
 }
 
-// MissingKbItem is a missing-KB row (payload.py:MissingKbItem).
+// MissingKbItem is a missing-KB row (reference schema: MissingKbItem).
 type MissingKbItem struct {
 	AssetExternalID string  `json:"asset_external_id"`
 	KBID            string  `json:"kb_id"`
@@ -191,7 +191,7 @@ type MissingKbItem struct {
 }
 
 // TLSVersionResult is one row of the per-version TLS acceptance matrix
-// (payload.py:TlsVersionResult).
+// (reference schema: TlsVersionResult).
 type TLSVersionResult struct {
 	Version          string `json:"version"`
 	Accepted         bool   `json:"accepted"`
