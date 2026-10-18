@@ -85,8 +85,14 @@ func Run(ctx context.Context, st *scanstate.ScanState, caps capabilities.Capabil
 	// confirmed routed hosts. Runs only when the ARP cache was readable — without
 	// an L2 probe a routed host is indistinguishable from "not observed", so the
 	// whole set stays fully null in that case.
+	//
+	// The resolved scan scope bounds the ARP harvest: the kernel ARP cache holds
+	// neighbours from every interface (docker/VPN/other-segment/stale entries), so
+	// an ARP-only host is only folded into the asset set when its IP is within
+	// scope. localNetworks() stays the separate routed-vs-local yardstick for the
+	// DISC-03 encoding of hosts that DID answer the sweep.
 	if caps.ARPCache {
-		enrichL2(entries, arpTable(), localNetworks())
+		enrichL2(entries, arpTable(), scope, localNetworks())
 	}
 
 	// Hostname enrichment (DISC-04): resolve a human-meaningful name per host via

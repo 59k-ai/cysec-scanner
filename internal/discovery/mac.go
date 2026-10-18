@@ -41,17 +41,31 @@ const (
 // unless an L2 probe is known to have been attempted.
 //
 // In order it (1) harvests hosts that answered ARP but stayed ICMP-silent into
-// the set, (2) assigns mac_address/mac_vendor from the ARP entry and the embedded
-// OUI registry, re-keying a host's external_id from ip:<ip> to mac:<mac> for a
-// stable cross-run identity — guarding a MAC already claimed by another asset so
-// a shared/proxy MAC never collapses two hosts into one — and (3) marks a
-// confirmed routed host with the DISC-03 sentinel + evidence. The set is mutated
-// in place BEFORE any asset is committed, so stabilization needs no accumulator
-// re-key.
-func enrichL2(entries map[string]hostEntry, arp map[string]string, localCIDRs []string) {
-	// (1) Harvest ARP-only hosts (answered ARP, ICMP-silent). At harvest time
-	// nothing is re-keyed yet, so every present host is still keyed ip:<ip>.
+// the set — but ONLY those within the resolved scan scope — (2) assigns
+// mac_address/mac_vendor from the ARP entry and the embedded OUI registry,
+// re-keying a host's external_id from ip:<ip> to mac:<mac> for a stable cross-run
+// identity — guarding a MAC already claimed by another asset so a shared/proxy
+// MAC never collapses two hosts into one — and (3) marks a confirmed routed host
+// with the DISC-03 sentinel + evidence. The set is mutated in place BEFORE any
+// asset is committed, so stabilization needs no accumulator re-key.
+//
+// scope is the resolved scan scope (explicit --cidr, else localNetworks); it
+// bounds the harvest so a stale/other-interface ARP neighbour the operator never
+// asked to scan does not become an asset. localCIDRs is the separate local-segment
+// yardstick for the routed/not-observed decision in (3); a host that ANSWERED the
+// sweep is in scope by construction, so the scope bound only ever drops ARP-only
+// harvest candidates.
+func enrichL2(entries map[string]hostEntry, arp map[string]string, scope, localCIDRs []string) {
+	// (1) Harvest ARP-only hosts (answered ARP, ICMP-silent) that fall within the
+	// resolved scan scope. The kernel ARP cache spans every interface, so an entry
+	// outside scope (docker/VPN/other-segment/stale) must not become an asset — it
+	// never answered the sweep and is not something the operator asked to scan. At
+	// harvest time nothing is re-keyed yet, so every present host is still keyed
+	// ip:<ip>.
 	for ip := range arp {
+		if !ipInAnyCIDR(ip, scope) {
+			continue
+		}
 		id := externalID(ip)
 		if _, ok := entries[id]; !ok {
 			entries[id] = hostEntry{ip: ip}

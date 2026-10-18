@@ -244,6 +244,43 @@ func TestEnrichL2HarvestsARPOnlyHost(t *testing.T) {
 	}
 }
 
+// TestEnrichL2DropsOutOfScopeARPHost is the phase-03 verifier BLOCKER regression:
+// an ARP-cache neighbour OUTSIDE the resolved scan scope must never be harvested
+// into an asset. The scenario mirrors `--cidr 192.0.2.0/30` (TEST-NET-1, no live
+// hosts) run on a box whose kernel ARP cache holds a 192.168.1.x neighbour from a
+// different interface/segment: the sweep returns zero in-scope hosts, yet the
+// stale ARP entry must NOT leak into the payload (Phase 4 would otherwise
+// port-scan an out-of-scope host). The payload for the empty in-scope scope must
+// still be strict-valid v5 with assets == [].
+func TestEnrichL2DropsOutOfScopeARPHost(t *testing.T) {
+	origSweep, origARP, origLocal := sweepHosts, arpTable, localNetworks
+	defer func() { sweepHosts, arpTable, localNetworks = origSweep, origARP, origLocal }()
+
+	// Zero live hosts answer the sweep within the requested scope.
+	sweepHosts = func(context.Context, []string, capabilities.Capabilities, netutil.PingFunc) []netutil.SweepResult {
+		return nil
+	}
+	// The kernel ARP cache holds only an out-of-scope neighbour, as it would after
+	// the host talked to a docker/VPN/other-segment address.
+	arpTable = func() map[string]string {
+		return map[string]string{"192.168.1.50": "28:6f:b9:00:00:02"}
+	}
+	// localNetworks reports the real local segment (192.168.1.0/24), distinct from
+	// the explicit, narrow scan scope below — proving the harvest is bounded by the
+	// resolved SCOPE, not by localNetworks.
+	localNetworks = func() []string { return []string{"192.168.1.0/24"} }
+
+	st := scanstate.New("full", "engine/test")
+	caps := capabilities.Capabilities{ARPCache: true}
+	if err := Run(context.Background(), st, caps, []string{"192.0.2.0/30"}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	assets := assertStrictValidV5(t, marshalToMap(t, st))
+	if len(assets) != 0 {
+		t.Fatalf("out-of-scope ARP neighbour leaked into %d assets, want 0 (BLOCKER: ARP harvest must be scope-bounded)", len(assets))
+	}
+}
+
 // TestEnrichL2ClaimedMACGuard proves a MAC already claimed by one asset does not
 // collapse a second host's identity: with two IPs behind one MAC (proxy/shared
 // MAC) the lowest IP claims mac:<mac> and the other keeps its ip:<ip> identity,
