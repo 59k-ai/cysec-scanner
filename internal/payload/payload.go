@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package payload is the Go-side hand-mirror of the cysec.watch Collector wire
-// schema at v5.
+// schema at v6.
 //
 // The Collector's strict reference schema is the single SOURCE OF TRUTH; these
 // structs reproduce its field names, JSON tags and enum string values exactly
@@ -14,14 +14,17 @@
 //   - Required slices are initialised to the empty literal ([]T{}, never a nil
 //     slice) so they marshal to JSON "[]" and not "null"; the strict model
 //     rejects null for a list field.
-//   - The five additive v5 scalar fields are pointer types (*string) so an unset
-//     value marshals to JSON null, letting Phase-3 discovery tell "not observed"
-//     (null) from a real empty value. A set pointer marshals to its value.
+//   - The additive scalar fields are pointer types (*string / *float64) so an
+//     unset value marshals to JSON null, letting a scanning stage tell "not
+//     observed" (null) from a real empty value. A set pointer marshals to its
+//     value. v6 extends this to the fingerprint-provenance fields: a service
+//     identity's source + confidence and an asset's os_guess trio each marshal
+//     to null together when the match is below the prefer-unknown confidence cut.
 package payload
 
 // SchemaVersion is the wire-schema version this mirror targets. It MUST equal
-// the Collector's PAYLOAD_SCHEMA_VERSION (5); the cloud accepts only v5.
-const SchemaVersion = 5
+// the Collector's reference-schema version (6); the cloud accepts v5 and v6.
+const SchemaVersion = 6
 
 // Payload is the top-level Collector -> cloud envelope.
 type Payload struct {
@@ -40,6 +43,21 @@ type Payload struct {
 	// PayloadIDHash is nil until the Collector runner stamps the canonical-JSON
 	// SHA-256; nil marshals to JSON null (reference schema: optional, default-null).
 	PayloadIDHash *string `json:"payload_id_hash"`
+	// ScanMetadata carries per-run fingerprint-database provenance (v6). It is a
+	// nullable pointer: nil marshals to JSON null (reference schema: optional,
+	// default-null) and the fingerprint stage sets it once per run.
+	ScanMetadata *ScanMetadata `json:"scan_metadata"`
+}
+
+// ScanMetadata records the pinned fingerprint-database versions used for a scan
+// run (v6, FPRINT-04). Both fields are nullable: a run that performed no
+// service/OS fingerprinting leaves them null. RecogDBVersion mirrors the pinned
+// upstream snapshot of the vendored service-fingerprint database recorded in the
+// governed data manifest; OSSignatureDBVersion pins the self-authored OS
+// signature database (populated by a later stage).
+type ScanMetadata struct {
+	RecogDBVersion       *string `json:"recog_db_version"`
+	OSSignatureDBVersion *string `json:"os_signature_db_version"`
 }
 
 // ServiceItem is a network service nested under AssetItem.services
@@ -54,6 +72,12 @@ type ServiceItem struct {
 	ServiceVersion *string `json:"service_version"`
 	Product        *string `json:"product"`
 	CPE            *string `json:"cpe"`
+	// v6 (FPRINT-03) — service-identity provenance, nullable. A higher-fidelity
+	// match sets the source label (e.g. the fingerprint-match source) and a
+	// numeric confidence in [0,1]; below the prefer-unknown cut both stay null
+	// together with the structured identity fields above.
+	ServiceIdentitySource     *string  `json:"service_identity_source"`
+	ServiceIdentityConfidence *float64 `json:"service_identity_confidence"`
 }
 
 // NetworkAliasItem is a secondary (hostname, address) pair for the same
@@ -91,6 +115,15 @@ type AssetItem struct {
 	// v5 (PAY-02, D-03) — L2 discovery evidence, nullable.
 	MACAddress *string `json:"mac_address"`
 	MACVendor  *string `json:"mac_vendor"`
+	// v6 (FPRINT-02/FPRINT-03) — OS guess from the self-authored signature
+	// engine, nullable and separate from the coarse OperatingSystem /
+	// OSFingerprintHint fields above so provenance stays separable. os_guess
+	// carries the engine's label, os_guess_source the engine/source label, and
+	// os_guess_confidence a numeric [0,1]; below the prefer-unknown cut all three
+	// stay null together ("unknown").
+	OSGuess           *string  `json:"os_guess"`
+	OSGuessSource     *string  `json:"os_guess_source"`
+	OSGuessConfidence *float64 `json:"os_guess_confidence"`
 }
 
 // IdentityItem is one identity record (reference schema: IdentityItem).
@@ -123,6 +156,10 @@ type ServiceExposureItem struct {
 	ServiceVersion *string `json:"service_version"`
 	Product        *string `json:"product"`
 	CPE            *string `json:"cpe"`
+	// v6 (FPRINT-03) — service-identity provenance, nullable (parity with
+	// ServiceItem so both representations carry full fidelity, D-02).
+	ServiceIdentitySource     *string  `json:"service_identity_source"`
+	ServiceIdentityConfidence *float64 `json:"service_identity_confidence"`
 }
 
 // VulnerabilityItem is one CVE finding (reference schema: VulnerabilityItem).

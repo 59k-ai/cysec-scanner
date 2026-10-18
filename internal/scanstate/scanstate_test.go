@@ -4,7 +4,9 @@
 package scanstate
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
@@ -49,5 +51,49 @@ func TestConcurrentAddAsset(t *testing.T) {
 	wg.Wait()
 	if got := len(st.Payload().Assets); got != n {
 		t.Fatalf("concurrent AddAsset produced %d assets, want %d", got, n)
+	}
+}
+
+// TestServiceBannersSideChannelIsolated proves the off-wire banner side-channel
+// round-trips per asset and returns a copy: mutating the returned map does not
+// change the stored state, and the banners never leak into the serialized
+// payload.
+func TestServiceBannersSideChannelIsolated(t *testing.T) {
+	t.Parallel()
+	st := New("full", "engine/test")
+	st.SetServiceBanners("ip:10.0.0.1", map[int]string{22: "SSH-2.0-OpenSSH_9.6p1"})
+
+	got := st.ServiceBanners("ip:10.0.0.1")
+	if got[22] != "SSH-2.0-OpenSSH_9.6p1" {
+		t.Fatalf("banner not stored: %v", got)
+	}
+	// Mutating the returned copy must not affect stored state.
+	got[22] = "tampered"
+	got[80] = "injected"
+	if again := st.ServiceBanners("ip:10.0.0.1"); again[22] != "SSH-2.0-OpenSSH_9.6p1" || len(again) != 1 {
+		t.Fatalf("returned map aliased internal state: %v", again)
+	}
+	// An unknown asset yields an empty (non-nil) map.
+	if m := st.ServiceBanners("ip:none"); m == nil || len(m) != 0 {
+		t.Fatalf("unknown asset should yield empty map, got %v", m)
+	}
+	// Banners never reach the serialized payload.
+	if b, _ := json.Marshal(st.Payload()); strings.Contains(string(b), "OpenSSH_9.6p1") {
+		t.Fatalf("raw banner leaked into the payload: %s", b)
+	}
+}
+
+// TestSetRecogDBVersion proves the scan-metadata setter populates the v6 block
+// and surfaces the value on the snapshot.
+func TestSetRecogDBVersion(t *testing.T) {
+	t.Parallel()
+	st := New("full", "engine/test")
+	if sm := st.Payload().ScanMetadata; sm != nil {
+		t.Fatalf("scan_metadata should start nil, got %+v", sm)
+	}
+	st.SetRecogDBVersion("abc123")
+	sm := st.Payload().ScanMetadata
+	if sm == nil || sm.RecogDBVersion == nil || *sm.RecogDBVersion != "abc123" {
+		t.Fatalf("recog_db_version not recorded: %+v", sm)
 	}
 }

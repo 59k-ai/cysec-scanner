@@ -25,13 +25,22 @@ import (
 type ScanState struct {
 	mu sync.Mutex
 	pl payload.Payload
+	// serviceBanners is an OFF-WIRE side-channel keyed by asset external_id,
+	// holding the text banners the port stage captured per open port. The
+	// fingerprint stage reads it to match an already-captured banner without
+	// re-dialing. It is internal state only and is NEVER serialized into the
+	// payload (raw banners stay off the wire — size + privacy).
+	serviceBanners map[string]map[int]string
 }
 
-// New returns a ScanState seeded with an empty-ish strict-valid v5 payload (the
+// New returns a ScanState seeded with an empty-ish strict-valid payload (the
 // given payload_type and collector_version; every required slice already an
 // empty literal).
 func New(payloadType, collectorVersion string) *ScanState {
-	return &ScanState{pl: payload.NewEmpty(payloadType, collectorVersion)}
+	return &ScanState{
+		pl:             payload.NewEmpty(payloadType, collectorVersion),
+		serviceBanners: map[string]map[int]string{},
+	}
 }
 
 // AddAsset appends one discovered asset to the accumulated payload. Safe for
@@ -80,4 +89,46 @@ func (s *ScanState) UpdateAsset(externalID string, fn func(*payload.AssetItem)) 
 			return
 		}
 	}
+}
+
+// SetServiceBanners records, under lock, the text banners the port stage captured
+// for one asset (keyed by port). The map is copied so the caller cannot mutate
+// the stored side-channel after the call. This is OFF-WIRE state the fingerprint
+// stage reads; it is never serialized into the payload.
+func (s *ScanState) SetServiceBanners(externalID string, banners map[int]string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := make(map[int]string, len(banners))
+	for k, v := range banners {
+		cp[k] = v
+	}
+	s.serviceBanners[externalID] = cp
+}
+
+// ServiceBanners returns a copy of the text banners recorded for one asset, or an
+// empty map when none were captured. The copy prevents the caller from aliasing
+// internal state.
+func (s *ScanState) ServiceBanners(externalID string) map[int]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	src := s.serviceBanners[externalID]
+	out := make(map[int]string, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
+}
+
+// SetRecogDBVersion records, under lock, the pinned service-fingerprint database
+// version for this run into the payload's scan_metadata block (v6, FPRINT-04),
+// allocating the block on first write. A later stage sets OSSignatureDBVersion
+// through the same accessor pattern.
+func (s *ScanState) SetRecogDBVersion(version string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pl.ScanMetadata == nil {
+		s.pl.ScanMetadata = &payload.ScanMetadata{}
+	}
+	v := version
+	s.pl.ScanMetadata.RecogDBVersion = &v
 }

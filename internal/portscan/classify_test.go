@@ -290,5 +290,5 @@ func TestClassifyMergeStrictValid(t *testing.T) {
 
 	st := scanstate.New("full", "engine/test")
 	st.AddAsset(*a)
-	assertStrictValidV5(t, marshalToMap(t, st))
+	assertStrictValidV6(t, marshalToMap(t, st))
 }

@@ -13,7 +13,7 @@ func ptr[T any](v T) *T { return &v }
 
 // TestEmptyPayloadSerialization pins the null-vs-[] invariant (PAY-04): every
 // required slice on an empty-ish payload marshals to "[]", never "null", and
-// schema_version marshals as 5 under its exact tag. A nil required slice (the
+// schema_version marshals as 6 under its exact tag. A nil required slice (the
 // regression this guards) would marshal to "null" and fail the strict model.
 func TestEmptyPayloadSerialization(t *testing.T) {
 	t.Parallel()
@@ -40,9 +40,13 @@ func TestEmptyPayloadSerialization(t *testing.T) {
 		}
 	}
 
-	// schema_version is 5 under its exact tag.
-	if !strings.Contains(s, `"schema_version":5`) {
-		t.Errorf("schema_version not 5 under schema_version tag; json=%s", s)
+	// schema_version is 6 under its exact tag.
+	if !strings.Contains(s, `"schema_version":6`) {
+		t.Errorf("schema_version not 6 under schema_version tag; json=%s", s)
+	}
+	// scan_metadata is null when unset (nil pointer).
+	if !strings.Contains(s, `"scan_metadata":null`) {
+		t.Errorf("scan_metadata should be null when unset; json=%s", s)
 	}
 	// payload_id_hash is null (unset pointer).
 	if !strings.Contains(s, `"payload_id_hash":null`) {
@@ -176,8 +180,8 @@ func TestPopulatedRoundTrip(t *testing.T) {
 	if deref(exp.ServiceVersion) != "1.25.3" || deref(exp.Product) != "nginx" || deref(exp.CPE) != "cpe:/a:nginx:nginx:1.25.3" {
 		t.Errorf("service_exposure v5 fields not round-trip faithful: %+v", exp)
 	}
-	if out.SchemaVersion != 5 {
-		t.Errorf("schema_version round-trip = %d, want 5", out.SchemaVersion)
+	if out.SchemaVersion != 6 {
+		t.Errorf("schema_version round-trip = %d, want 6", out.SchemaVersion)
 	}
 }
 

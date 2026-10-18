@@ -40,11 +40,11 @@ func marshalToMap(t *testing.T, st *scanstate.ScanState) map[string]any {
 	return m
 }
 
-// assertStrictValidV5 asserts schema_version 5 and that assets is a JSON list.
-func assertStrictValidV5(t *testing.T, m map[string]any) []any {
+// assertStrictValidV6 asserts schema_version 6 and that assets is a JSON list.
+func assertStrictValidV6(t *testing.T, m map[string]any) []any {
 	t.Helper()
-	if sv, _ := m["schema_version"].(float64); sv != 5 {
-		t.Fatalf("schema_version = %v, want 5", m["schema_version"])
+	if sv, _ := m["schema_version"].(float64); sv != 6 {
+		t.Fatalf("schema_version = %v, want 6", m["schema_version"])
 	}
 	assets, ok := m["assets"].([]any)
 	if !ok {
@@ -125,7 +125,7 @@ func TestTracerEndToEnd(t *testing.T) {
 	}
 
 	m := marshalToMap(t, st)
-	outAssets := assertStrictValidV5(t, m)
+	outAssets := assertStrictValidV6(t, m)
 	first := outAssets[0].(map[string]any)
 	if _, ok := first["services"].([]any); !ok {
 		t.Errorf("asset services is not a JSON list (got %T)", first["services"])
@@ -136,7 +136,7 @@ func TestTracerEndToEnd(t *testing.T) {
 	if err := Run(context.Background(), st2, capabilities.Capabilities{}, opts); err != nil {
 		t.Fatalf("Run (zero): %v", err)
 	}
-	if assets2 := assertStrictValidV5(t, marshalToMap(t, st2)); len(assets2) != 0 {
+	if assets2 := assertStrictValidV6(t, marshalToMap(t, st2)); len(assets2) != 0 {
 		t.Fatalf("zero-asset run produced %d assets, want 0", len(assets2))
 	}
 }

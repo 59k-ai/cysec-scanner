@@ -183,6 +183,12 @@ func finalizeAsset(st *scanstate.ScanState, externalID string, ports []openPort)
 		textBanners[p] = b.Text
 	}
 
+	// Stash the already-captured text banners on the off-wire side-channel so the
+	// fingerprint stage can match them without a second dial. A pure addition: it
+	// does not change the classify/merge behavior below, and raw banners never
+	// reach the wire payload.
+	st.SetServiceBanners(externalID, textBanners)
+
 	st.UpdateAsset(externalID, func(a *payload.AssetItem) {
 		in := classifyInput{
 			OpenPorts:        openPorts,

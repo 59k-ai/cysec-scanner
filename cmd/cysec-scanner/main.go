@@ -29,6 +29,7 @@ import (
 
 	"github.com/cysec-watch/cysec-scanner/internal/capabilities"
 	"github.com/cysec-watch/cysec-scanner/internal/discovery"
+	"github.com/cysec-watch/cysec-scanner/internal/fingerprint"
 	"github.com/cysec-watch/cysec-scanner/internal/payload"
 	"github.com/cysec-watch/cysec-scanner/internal/pipeline"
 	"github.com/cysec-watch/cysec-scanner/internal/portscan"
@@ -60,7 +61,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	fs := flag.NewFlagSet("cysec-scanner", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	payloadOut := fs.String("payload-out", "", "path to write the v5 payload JSON (required)")
+	payloadOut := fs.String("payload-out", "", "path to write the v6 payload JSON (required)")
 	var cidrs cidrList
 	fs.Var(&cidrs, "cidr", "scope CIDR to scan (repeatable); empty means auto-detect the local subnet")
 	timing := fs.String("timing", "polite", "scan timing tier: polite (default)")
@@ -117,7 +118,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		{Name: pipeline.StagePort, Run: func(ctx context.Context) error {
 			return portscan.Run(ctx, st, caps, portscan.Options{Tier: portscan.ResolveTier(*timing), Ports: resolvedPorts})
 		}},
-		{Name: pipeline.StageFingerprint, Run: func(context.Context) error { return nil }},
+		{Name: pipeline.StageFingerprint, Run: func(ctx context.Context) error {
+			return fingerprint.Run(ctx, st, caps, fingerprint.Options{})
+		}},
 		{Name: pipeline.StageAuthPosture, Run: func(context.Context) error { return nil }},
 	}
 
