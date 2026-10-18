@@ -28,6 +28,7 @@ import (
 
 	scannerdata "github.com/cysec-watch/cysec-scanner"
 	"github.com/cysec-watch/cysec-scanner/internal/capabilities"
+	"github.com/cysec-watch/cysec-scanner/internal/fingerprint/osfp"
 	"github.com/cysec-watch/cysec-scanner/internal/fingerprint/recog"
 	"github.com/cysec-watch/cysec-scanner/internal/governance"
 	"github.com/cysec-watch/cysec-scanner/internal/payload"
@@ -43,9 +44,45 @@ const sourceRecogV1 = "recog-v1"
 // identity is suppressed rather than shown as a weak claim (FPRINT-03, D-07).
 const confidenceCut = 0.5
 
-// sshDBPath is the embedded, governed service-fingerprint database this stage
-// matches SSH banners against.
+// sshDBPath is one embedded, governed service-fingerprint database file. It is
+// the allowlist entry this stage reads the shared pinned DB version from (every
+// vendored Recog file shares one upstream snapshot — FPRINT-04).
 const sshDBPath = "data/recog/ssh_banners.xml"
+
+// recogDir is the embedded directory tree of vendored, governed Recog databases
+// (one file per protocol). The stage loads the whole corpus so a captured banner
+// is routed to the database for its own protocol.
+const recogDir = "data/recog"
+
+// Classification-evidence keys the OS engine reads off the asset. They match the
+// keys the earlier discovery and port stages write (the coarse reply-TTL family
+// and the banner-derived OS cue), so the OS guess reuses evidence already on the
+// asset without a second probe.
+const (
+	evidenceKeyOSTTLFamily = "os_ttl_family"
+	evidenceKeyBannerOSCue = "banner_os_cue"
+)
+
+// recogProtocolByPort maps a well-known port to the Recog protocol (the database
+// file's declared protocol attribute) its banner should be matched against. A
+// port absent from the map is not routed to a service-fingerprint database.
+var recogProtocolByPort = map[int]string{
+	21:   "ftp",
+	22:   "ssh",
+	23:   "telnet",
+	25:   "smtp",
+	465:  "smtp",
+	587:  "smtp",
+	80:   "http",
+	443:  "http",
+	8008: "http",
+	8080: "http",
+	8443: "http",
+	110:  "pop3",
+	995:  "pop3",
+	143:  "imap",
+	993:  "imap",
+}
 
 // Options carries the resolved per-scan fingerprint settings. ProbeFragile is the
 // operator override that enables intrusive probing of fragile devices; it is
@@ -65,47 +102,117 @@ var sshIdentRe = regexp.MustCompile(`^SSH-\d+\.\d+-(.*)$`)
 // so a fully-degraded run still yields a complete, strict-valid payload.
 func Run(ctx context.Context, st *scanstate.ScanState, caps capabilities.Capabilities, opts Options) error {
 	_ = caps // capabilities reserved for later privileged probe paths
-	_ = opts // ProbeFragile reserved for the later intrusive-probe gate
+	_ = opts // ProbeFragile is consulted by the intrusive-probe gate (see below)
 
-	db, err := recog.Load(scannerdata.DataFS, sshDBPath)
+	corpus, err := recog.LoadCorpus(scannerdata.DataFS, recogDir)
 	if err != nil {
 		// Never-raises: a database that cannot load degrades the stage to a no-op.
 		return nil
 	}
 
-	// Record the pinned database version once per run (FPRINT-04), read from the
-	// governed data manifest — never a hand-maintained duplicate constant.
+	// Record the pinned database versions once per run (FPRINT-04): the service
+	// fingerprint DB version read from the governed data manifest, and the
+	// self-authored OS signature DB version (a package constant).
 	if v := recogDBVersion(); v != "" {
 		st.SetRecogDBVersion(v)
 	}
+	st.SetOSSignatureDBVersion(osfp.OSSignatureDBVersion)
+
+	sigs := osfp.DefaultSignatures()
 
 	for _, a := range st.Assets() {
 		if ctx.Err() != nil {
 			return nil
 		}
 		banners := st.ServiceBanners(a.ExternalID)
-		if len(banners) == 0 {
-			continue
-		}
 		st.UpdateAsset(a.ExternalID, func(ai *payload.AssetItem) {
+			// Service identity: route each captured banner to the database for its
+			// own protocol and promote a >=cut match (D-11). Collect any OS cue the
+			// matched fingerprint carries to feed the OS engine.
+			bannerOSCue := ""
 			for i := range ai.Services {
 				banner, ok := banners[ai.Services[i].Port]
-				if !ok {
+				if !ok || banner == "" {
 					continue
 				}
-				comment := sshComment(banner)
-				if comment == "" {
-					continue
-				}
-				id, matched := db.Match(comment)
+				id, matched := matchService(corpus, ai.Services[i].Port, banner)
 				if !matched {
 					continue
 				}
+				if bannerOSCue == "" && id.OSFamily != "" {
+					bannerOSCue = id.OSFamily
+				}
 				applyServiceIdentity(&ai.Services[i], id, confidenceCut)
 			}
+
+			// OS guess: score the self-authored signatures against the unprivileged
+			// evidence already on the asset — the discovery reply-TTL family and the
+			// banner OS cue — and emit a guess only at or above the prefer-unknown
+			// cut; below it, os_guess / source / confidence stay null together.
+			applyOSGuess(ai, sigs, bannerOSCue)
 		})
 	}
 	return nil
+}
+
+// matchService routes a captured banner to the Recog database for the port's
+// protocol and returns the match. SSH identification strings are matched on their
+// software-and-comment portion (the SSH DB patterns expect the prefix stripped);
+// every other protocol matches the raw banner. An unrouted port, an empty
+// comment, or an absent protocol database is a clean miss.
+func matchService(corpus *recog.Corpus, port int, banner string) (recog.Identity, bool) {
+	proto := recogProtocolByPort[port]
+	if proto == "" {
+		return recog.Identity{}, false
+	}
+	db := corpus.DatabaseForProtocol(proto)
+	if db == nil {
+		return recog.Identity{}, false
+	}
+	if proto == "ssh" {
+		comment := sshComment(banner)
+		if comment == "" {
+			return recog.Identity{}, false
+		}
+		return db.Match(comment)
+	}
+	return db.Match(banner)
+}
+
+// applyOSGuess builds an Observation from the asset's unprivileged evidence (the
+// discovery reply-TTL family supplied as its public initial-TTL default, plus a
+// banner-derived OS cue) and writes an os_guess / os_guess_source /
+// os_guess_confidence trio only when the engine's confidence meets the cut. Below
+// the cut it leaves all three null ("unknown"). It never re-probes and never
+// feeds any compliance verdict (D-15) — the guess is evidence only.
+func applyOSGuess(ai *payload.AssetItem, sigs []osfp.OSSignature, bannerOSCue string) {
+	family := evidenceValue(ai, evidenceKeyOSTTLFamily)
+	if bannerOSCue == "" {
+		bannerOSCue = evidenceValue(ai, evidenceKeyBannerOSCue)
+	}
+	obs := osfp.Observation{
+		ReplyTTL:    osfp.TTLForFamily(family),
+		BannerOSCue: bannerOSCue,
+	}
+	label, source, confidence := osfp.Guess(obs, sigs)
+	if label == "" || confidence < confidenceCut {
+		return
+	}
+	g := label
+	s := source
+	c := confidence
+	ai.OSGuess = &g
+	ai.OSGuessSource = &s
+	ai.OSGuessConfidence = &c
+}
+
+// evidenceValue reads one key from the asset's classification evidence map,
+// nil-safe, returning "" when the classification, map, or key is absent.
+func evidenceValue(ai *payload.AssetItem, key string) string {
+	if ai == nil || ai.Classification == nil || ai.Classification.Evidence == nil {
+		return ""
+	}
+	return ai.Classification.Evidence[key]
 }
 
 // applyServiceIdentity promotes a service-fingerprint match into a service item

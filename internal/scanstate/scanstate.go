@@ -132,3 +132,18 @@ func (s *ScanState) SetRecogDBVersion(version string) {
 	v := version
 	s.pl.ScanMetadata.RecogDBVersion = &v
 }
+
+// SetOSSignatureDBVersion records, under lock, the pinned self-authored OS
+// signature database version for this run into the payload's scan_metadata block
+// (v6, FPRINT-04), allocating the block on first write. It mirrors
+// SetRecogDBVersion exactly so both fingerprint-database provenance values are
+// recorded through the same accessor pattern.
+func (s *ScanState) SetOSSignatureDBVersion(version string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pl.ScanMetadata == nil {
+		s.pl.ScanMetadata = &payload.ScanMetadata{}
+	}
+	v := version
+	s.pl.ScanMetadata.OSSignatureDBVersion = &v
+}

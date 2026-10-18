@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/cysec-watch/cysec-scanner/internal/capabilities"
+	"github.com/cysec-watch/cysec-scanner/internal/fingerprint/osfp"
 	"github.com/cysec-watch/cysec-scanner/internal/fingerprint/recog"
 	"github.com/cysec-watch/cysec-scanner/internal/payload"
 	"github.com/cysec-watch/cysec-scanner/internal/scanstate"
@@ -234,6 +235,141 @@ func TestNeverRaises(t *testing.T) {
 			}
 			assertStrictValidV6(t, pl)
 		})
+	}
+}
+
+// seedAssetWithEvidence builds a ScanState with one asset carrying the given
+// service, classification evidence, and (optionally) a captured banner on the
+// off-wire side-channel — the shape the OS engine reads.
+func seedAssetWithEvidence(t *testing.T, evidence map[string]string, svc payload.ServiceItem, banner string) *scanstate.ScanState {
+	t.Helper()
+	st := scanstate.New("full", "engine/test")
+	ip := "10.0.0.20"
+	st.AddAsset(payload.AssetItem{
+		ExternalID: "ip:10.0.0.20",
+		IPAddress:  &ip,
+		Services:   []payload.ServiceItem{svc},
+		Classification: &payload.ClassificationEvidence{
+			AssetType:     "unknown",
+			Evidence:      evidence,
+			SecurityFlags: []string{},
+		},
+	})
+	if banner != "" {
+		st.SetServiceBanners("ip:10.0.0.20", map[int]string{svc.Port: banner})
+	}
+	return st
+}
+
+// TestHTTPBannerResolvesToV6 proves the multi-protocol routing closes FPRINT-01
+// end-to-end: a captured HTTP Server banner is routed to the http database (not
+// SSH-only) and resolves into the v6 service-identity fields with source
+// recog-v1 — a non-SSH protocol flowing all the way into the wire.
+func TestHTTPBannerResolvesToV6(t *testing.T) {
+	t.Parallel()
+
+	st := seedAsset(t, "nginx/1.4.6", payload.ServiceItem{
+		Port:        80,
+		Protocol:    "tcp",
+		ServiceName: "http",
+	})
+	pl := runStage(t, st)
+	svc := pl.Assets[0].Services[0]
+	if got := deref(svc.Product); got != "nginx" {
+		t.Errorf("product = %q, want nginx", got)
+	}
+	if got := deref(svc.ServiceVersion); got != "1.4.6" {
+		t.Errorf("service_version = %q, want 1.4.6", got)
+	}
+	if got := deref(svc.CPE); got != "cpe:/a:f5:nginx:1.4.6" {
+		t.Errorf("cpe = %q, want cpe:/a:f5:nginx:1.4.6", got)
+	}
+	if got := deref(svc.ServiceIdentitySource); got != sourceRecogV1 {
+		t.Errorf("service_identity_source = %q, want %q", got, sourceRecogV1)
+	}
+	assertStrictValidV6(t, pl)
+}
+
+// TestOSGuessFromTTLAndBanner proves the OS engine emits a guess into the v6
+// os_guess trio when an unprivileged TTL family and a banner OS cue corroborate.
+// The banner OS cue flows from the Recog match (a Microsoft FTP banner carries an
+// os.family of Windows), and the discovery reply-TTL family is windows.
+func TestOSGuessFromTTLAndBanner(t *testing.T) {
+	t.Parallel()
+
+	st := seedAssetWithEvidence(t,
+		map[string]string{"os_ttl_family": "windows"},
+		payload.ServiceItem{Port: 21, Protocol: "tcp", ServiceName: "ftp"},
+		"foo.bar Microsoft FTP Service (Version 3.0).",
+	)
+	pl := runStage(t, st)
+	a := pl.Assets[0]
+	if got := deref(a.OSGuess); got != "Windows" {
+		t.Errorf("os_guess = %q, want Windows", got)
+	}
+	if got := deref(a.OSGuessSource); got != "osfp-banner-v1" {
+		t.Errorf("os_guess_source = %q, want osfp-banner-v1", got)
+	}
+	if a.OSGuessConfidence == nil || *a.OSGuessConfidence < 0.5 {
+		t.Errorf("os_guess_confidence = %v, want >= 0.5", a.OSGuessConfidence)
+	}
+	// The FTP service identity is also promoted (IIS) — routing works for non-SSH.
+	if got := deref(a.Services[0].Product); got != "IIS" {
+		t.Errorf("ftp product = %q, want IIS", got)
+	}
+	assertStrictValidV6(t, pl)
+}
+
+// TestOSGuessTTLAloneIsUnknown proves a coarse TTL-only signal (no banner cue)
+// scores below the cut, so os_guess, os_guess_source and os_guess_confidence stay
+// null together — "unknown" is preferred over a spoofable TTL guess.
+func TestOSGuessTTLAloneIsUnknown(t *testing.T) {
+	t.Parallel()
+
+	st := seedAssetWithEvidence(t,
+		map[string]string{"os_ttl_family": "linux"},
+		payload.ServiceItem{Port: 22, Protocol: "tcp", ServiceName: "ssh"},
+		"", // no banner
+	)
+	pl := runStage(t, st)
+	a := pl.Assets[0]
+	if a.OSGuess != nil || a.OSGuessSource != nil || a.OSGuessConfidence != nil {
+		t.Errorf("TTL-alone must leave os_guess trio null: guess=%v source=%v conf=%v",
+			a.OSGuess, a.OSGuessSource, a.OSGuessConfidence)
+	}
+	assertStrictValidV6(t, pl)
+}
+
+// TestOSGuessNoSignalAllNull proves a host with no TTL family and no banner cue
+// yields no OS guess at all — every OS provenance field null together.
+func TestOSGuessNoSignalAllNull(t *testing.T) {
+	t.Parallel()
+
+	st := seedAssetWithEvidence(t,
+		map[string]string{},
+		payload.ServiceItem{Port: 22, Protocol: "tcp", ServiceName: "ssh"},
+		"",
+	)
+	pl := runStage(t, st)
+	a := pl.Assets[0]
+	if a.OSGuess != nil || a.OSGuessSource != nil || a.OSGuessConfidence != nil {
+		t.Errorf("no-signal host must have null os_guess trio: %+v", a)
+	}
+	assertStrictValidV6(t, pl)
+}
+
+// TestOSDBVersionRecorded proves scan_metadata.os_signature_db_version is set on
+// every run from the self-authored package constant (FPRINT-04).
+func TestOSDBVersionRecorded(t *testing.T) {
+	t.Parallel()
+
+	st := seedAsset(t, "SSH-2.0-OpenSSH_5.9p1", payload.ServiceItem{Port: 22, Protocol: "tcp", ServiceName: "ssh"})
+	pl := runStage(t, st)
+	if pl.ScanMetadata == nil {
+		t.Fatal("scan_metadata not set")
+	}
+	if got := deref(pl.ScanMetadata.OSSignatureDBVersion); got != osfp.OSSignatureDBVersion {
+		t.Errorf("os_signature_db_version = %q, want %q", got, osfp.OSSignatureDBVersion)
 	}
 }
 

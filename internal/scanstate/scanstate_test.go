@@ -97,3 +97,19 @@ func TestSetRecogDBVersion(t *testing.T) {
 		t.Fatalf("recog_db_version not recorded: %+v", sm)
 	}
 }
+
+// TestSetOSSignatureDBVersion proves the OS-signature scan-metadata setter
+// mirrors SetRecogDBVersion: it allocates the v6 block on first write and
+// surfaces the value on the snapshot, independent of the recog version.
+func TestSetOSSignatureDBVersion(t *testing.T) {
+	t.Parallel()
+	st := New("full", "engine/test")
+	if sm := st.Payload().ScanMetadata; sm != nil {
+		t.Fatalf("scan_metadata should start nil, got %+v", sm)
+	}
+	st.SetOSSignatureDBVersion("osfp-v1-2026-10-19")
+	sm := st.Payload().ScanMetadata
+	if sm == nil || sm.OSSignatureDBVersion == nil || *sm.OSSignatureDBVersion != "osfp-v1-2026-10-19" {
+		t.Fatalf("os_signature_db_version not recorded: %+v", sm)
+	}
+}
