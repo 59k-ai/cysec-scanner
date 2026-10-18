@@ -3,13 +3,25 @@ package discovery
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/cysec-watch/cysec-scanner/internal/capabilities"
 	"github.com/cysec-watch/cysec-scanner/internal/netutil"
 	"github.com/cysec-watch/cysec-scanner/internal/scanstate"
 )
+
+// TestMain defaults the hostname-resolver seams to no-ops so Run-based tests do
+// no real DNS/mDNS/NetBIOS network I/O. Hostname-specific tests override the
+// seams explicitly and restore them.
+func TestMain(m *testing.M) {
+	resolveRDNS = func(context.Context, string, time.Duration) string { return "" }
+	resolveMDNS = func(context.Context, string, time.Duration) string { return "" }
+	resolveNetBIOS = func(context.Context, string, time.Duration) string { return "" }
+	os.Exit(m.Run())
+}
 
 // marshalToMap round-trips the accumulator payload through JSON into a generic
 // map, so a required slice emitted as JSON null (nil) is distinguishable from an
@@ -226,6 +238,118 @@ func TestEnrichL2ClaimedMACGuard(t *testing.T) {
 	}
 	if len(assets) != 2 {
 		t.Fatalf("want 2 distinct assets, got %d: %v", len(assets), keysOf(assets))
+	}
+}
+
+// TestEnrichHostnames proves the DISC-04 producer contract: hostname precedence
+// (rDNS -> mDNS -> NetBIOS), the per-resolver hit flags recorded for EVERY
+// resolver that answered (including one that answered but lost precedence), and
+// the empty-on-total-miss path with all flags false.
+func TestEnrichHostnames(t *testing.T) {
+	origR, origM, origN := resolveRDNS, resolveMDNS, resolveNetBIOS
+	defer func() { resolveRDNS, resolveMDNS, resolveNetBIOS = origR, origM, origN }()
+
+	resolveRDNS = func(_ context.Context, ip string, _ time.Duration) string {
+		if ip == "10.0.0.5" {
+			return "host5.example.com"
+		}
+		return ""
+	}
+	resolveMDNS = func(_ context.Context, ip string, _ time.Duration) string {
+		switch ip {
+		case "10.0.0.5":
+			return "host5.local" // answers, but loses precedence to rDNS
+		case "10.0.0.6":
+			return "host6.local" // wins (no rDNS)
+		}
+		return ""
+	}
+	resolveNetBIOS = func(_ context.Context, ip string, _ time.Duration) string {
+		if ip == "10.0.0.7" {
+			return "WORKSTATION7" // wins (no rDNS, no mDNS)
+		}
+		return ""
+	}
+
+	entries := map[string]hostEntry{
+		"ip:10.0.0.5": {ip: "10.0.0.5"},
+		"ip:10.0.0.6": {ip: "10.0.0.6"},
+		"ip:10.0.0.7": {ip: "10.0.0.7"},
+		"ip:10.0.0.8": {ip: "10.0.0.8"}, // total miss
+	}
+	enrichHostnames(context.Background(), entries)
+
+	// host5: rDNS wins the name, but mDNS also answered -> both flags set.
+	h5 := entries["ip:10.0.0.5"]
+	if h5.hostname != "host5.example.com" {
+		t.Errorf("host5 hostname = %q, want host5.example.com (rDNS precedence)", h5.hostname)
+	}
+	if !h5.rdnsHit || !h5.mdnsHit {
+		t.Errorf("host5 flags: rdns=%v mdns=%v, want both true (mDNS answered but lost precedence)", h5.rdnsHit, h5.mdnsHit)
+	}
+	if h5.netbiosHit {
+		t.Errorf("host5 netbiosHit = true, want false (NetBIOS did not answer)")
+	}
+
+	// host6: mDNS wins.
+	h6 := entries["ip:10.0.0.6"]
+	if h6.hostname != "host6.local" {
+		t.Errorf("host6 hostname = %q, want host6.local", h6.hostname)
+	}
+	if h6.rdnsHit || !h6.mdnsHit || h6.netbiosHit {
+		t.Errorf("host6 flags: rdns=%v mdns=%v netbios=%v, want false/true/false", h6.rdnsHit, h6.mdnsHit, h6.netbiosHit)
+	}
+
+	// host7: NetBIOS wins.
+	h7 := entries["ip:10.0.0.7"]
+	if h7.hostname != "WORKSTATION7" {
+		t.Errorf("host7 hostname = %q, want WORKSTATION7", h7.hostname)
+	}
+	if h7.rdnsHit || h7.mdnsHit || !h7.netbiosHit {
+		t.Errorf("host7 flags: rdns=%v mdns=%v netbios=%v, want false/false/true", h7.rdnsHit, h7.mdnsHit, h7.netbiosHit)
+	}
+
+	// host8: total miss -> empty hostname, all flags false.
+	h8 := entries["ip:10.0.0.8"]
+	if h8.hostname != "" {
+		t.Errorf("host8 hostname = %q, want \"\" (total miss)", h8.hostname)
+	}
+	if h8.rdnsHit || h8.mdnsHit || h8.netbiosHit {
+		t.Errorf("host8 flags must all be false on a total miss, got rdns=%v mdns=%v netbios=%v", h8.rdnsHit, h8.mdnsHit, h8.netbiosHit)
+	}
+}
+
+// TestHostnameOnAsset proves a resolved hostname reaches AssetItem.Hostname/FQDN
+// and that the payload stays strict-valid, and that a total miss leaves the
+// hostname empty without breaking strict validity.
+func TestHostnameOnAsset(t *testing.T) {
+	origSweep, origR := sweepHosts, resolveRDNS
+	defer func() { sweepHosts, resolveRDNS = origSweep, origR }()
+
+	sweepHosts = func(context.Context, []string, capabilities.Capabilities, netutil.PingFunc) []netutil.SweepResult {
+		return []netutil.SweepResult{{IP: "10.1.2.3", TTL: 64}}
+	}
+	resolveRDNS = func(_ context.Context, ip string, _ time.Duration) string {
+		if ip == "10.1.2.3" {
+			return "named-host.example.com"
+		}
+		return ""
+	}
+
+	st := scanstate.New("full", "engine/test")
+	if err := Run(context.Background(), st, capabilities.Capabilities{}, []string{"10.1.2.3/32"}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	assets := assertStrictValidV5(t, marshalToMap(t, st))
+	if len(assets) != 1 {
+		t.Fatalf("produced %d assets, want 1", len(assets))
+	}
+	a := assets[0].(map[string]any)
+	if a["hostname"] != "named-host.example.com" {
+		t.Errorf("asset hostname = %v, want named-host.example.com", a["hostname"])
+	}
+	if a["fqdn"] != "named-host.example.com" {
+		t.Errorf("asset fqdn = %v, want named-host.example.com", a["fqdn"])
 	}
 }
 

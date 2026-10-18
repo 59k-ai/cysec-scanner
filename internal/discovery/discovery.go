@@ -36,12 +36,22 @@ var (
 // hint (attacker-spoofable, low confidence). mac/macVendor are the post-sweep
 // Layer-2 enrichment (nil = not observed); routed marks a confirmed off-segment
 // host carrying the DISC-03 "not on local segment" state.
+//
+// hostname is the resolved (sanitized) name set on the asset; it is "" when no
+// resolver answered. rdnsHit/mdnsHit/netbiosHit record WHICH resolvers actually
+// answered — independent of which name won precedence — as internal bookkeeping
+// (no new payload field). They are the producer the classification enrichment
+// reads to emit the mdns/netbios presence evidence; it does not re-probe.
 type hostEntry struct {
-	ip        string
-	ttl       int
-	mac       *string
-	macVendor *string
-	routed    bool
+	ip         string
+	ttl        int
+	mac        *string
+	macVendor  *string
+	routed     bool
+	hostname   string
+	rdnsHit    bool
+	mdnsHit    bool
+	netbiosHit bool
 }
 
 // Run resolves the scope, sweeps it, and writes one base AssetItem per live host
@@ -79,6 +89,11 @@ func Run(ctx context.Context, st *scanstate.ScanState, caps capabilities.Capabil
 		enrichL2(entries, arpTable(), localNetworks())
 	}
 
+	// Hostname enrichment (DISC-04): resolve a human-meaningful name per host via
+	// rDNS, mDNS and NetBIOS. Runs AFTER L2 enrichment (so it keys off the stable
+	// mac:<mac> identity where one was assigned) and BEFORE the final AddAsset.
+	enrichHostnames(ctx, entries)
+
 	// Finalize into assets at the end, in deterministic order.
 	ids := make([]string, 0, len(entries))
 	for id := range entries {
@@ -111,6 +126,8 @@ func buildAsset(id string, e hostEntry) payload.AssetItem {
 	ip := e.ip
 	a := payload.AssetItem{
 		ExternalID:     id,
+		Hostname:       e.hostname,
+		FQDN:           e.hostname,
 		IPAddress:      &ip,
 		Managed:        false,
 		InternetFacing: false,
