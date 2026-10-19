@@ -221,6 +221,10 @@ func normalizeBanner(proto, banner string) string {
 		return httpServerHeader(banner)
 	case "ftp", "smtp":
 		return stripNumericStatusLeader(banner)
+	case "pop3":
+		return stripTokenLeader(banner, "+OK", "-ERR")
+	case "imap":
+		return stripImapLeader(banner)
 	default:
 		// telnet and any unlisted protocol match the bare greeting (no leader).
 		return banner
@@ -246,6 +250,40 @@ func stripNumericStatusLeader(banner string) string {
 		return banner[4:]
 	}
 	return banner
+}
+
+// stripTokenLeader removes a leading status token (e.g. the POP3 "+OK" / "-ERR")
+// and its single following space from a greeting, returning the payload the
+// fingerprint database matches. A greeting beginning with none of the tokens is
+// returned unchanged. Plain anchored prefix comparison — linear-time, no regex
+// engine and so no backtracking of any kind (D-14).
+func stripTokenLeader(banner string, tokens ...string) string {
+	for _, tok := range tokens {
+		prefix := tok + " "
+		if strings.HasPrefix(banner, prefix) {
+			return banner[len(prefix):]
+		}
+	}
+	return banner
+}
+
+// stripImapLeader removes a leading IMAP untagged-response leader — "* OK ",
+// "* PREAUTH ", or the bare "* " — from a greeting, returning the payload the
+// fingerprint database matches. A greeting that is not an untagged response is
+// returned unchanged. Plain anchored prefix comparison — linear-time, no regex
+// engine (D-14).
+func stripImapLeader(banner string) string {
+	const untagged = "* "
+	if !strings.HasPrefix(banner, untagged) {
+		return banner
+	}
+	rest := banner[len(untagged):]
+	for _, status := range []string{"OK ", "PREAUTH "} {
+		if strings.HasPrefix(rest, status) {
+			return rest[len(status):]
+		}
+	}
+	return rest
 }
 
 // applyOSGuess builds an Observation from the asset's unprivileged evidence (the
