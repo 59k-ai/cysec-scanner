@@ -83,6 +83,37 @@ func TestServiceBannersSideChannelIsolated(t *testing.T) {
 	}
 }
 
+// TestAddTopLevelSliceAccessors proves each new top-level-slice accessor appends
+// one row to its matching payload slice (the authposture seam). One append per
+// accessor, mirroring the AddAsset contract.
+func TestAddTopLevelSliceAccessors(t *testing.T) {
+	t.Parallel()
+	st := New("full", "engine/test")
+
+	st.AddSoftwareInventory(payload.SoftwareInventoryItem{AssetExternalID: "ip:a", DisplayName: "7-Zip"})
+	st.AddMissingKb(payload.MissingKbItem{AssetExternalID: "ip:a", KBID: "KB5001"})
+	st.AddConfigurationCheck(payload.ConfigurationCheckItem{AssetExternalID: "ip:a", CheckCode: "SMB-SIGN"})
+	st.AddIdentity(payload.IdentityItem{ExternalID: "u:svc", Username: "svc", Source: "active_directory"})
+	st.AddPasswordPolicy(payload.PasswordPolicyItem{PolicyName: "Default Domain Policy"})
+
+	pl := st.Payload()
+	if len(pl.SoftwareInventory) != 1 || pl.SoftwareInventory[0].DisplayName != "7-Zip" {
+		t.Errorf("AddSoftwareInventory: %+v", pl.SoftwareInventory)
+	}
+	if len(pl.MissingKbs) != 1 || pl.MissingKbs[0].KBID != "KB5001" {
+		t.Errorf("AddMissingKb: %+v", pl.MissingKbs)
+	}
+	if len(pl.ConfigurationChecks) != 1 || pl.ConfigurationChecks[0].CheckCode != "SMB-SIGN" {
+		t.Errorf("AddConfigurationCheck: %+v", pl.ConfigurationChecks)
+	}
+	if len(pl.Identities) != 1 || pl.Identities[0].Username != "svc" {
+		t.Errorf("AddIdentity: %+v", pl.Identities)
+	}
+	if len(pl.PasswordPolicies) != 1 || pl.PasswordPolicies[0].PolicyName != "Default Domain Policy" {
+		t.Errorf("AddPasswordPolicy: %+v", pl.PasswordPolicies)
+	}
+}
+
 // TestSetRecogDBVersion proves the scan-metadata setter populates the v6 block
 // and surfaces the value on the snapshot.
 func TestSetRecogDBVersion(t *testing.T) {

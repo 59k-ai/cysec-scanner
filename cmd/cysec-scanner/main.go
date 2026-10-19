@@ -27,6 +27,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/cysec-watch/cysec-scanner/internal/authposture"
 	"github.com/cysec-watch/cysec-scanner/internal/capabilities"
 	"github.com/cysec-watch/cysec-scanner/internal/discovery"
 	"github.com/cysec-watch/cysec-scanner/internal/fingerprint"
@@ -39,6 +40,15 @@ import (
 
 // collectorVersion stamps the payload's collector_version field for this engine.
 const collectorVersion = "cysec-scanner-engine/0.0.0"
+
+// The single read-only domain scan account (D-05, ENG-03) is sourced ONLY from
+// the child environment — never from argv or a config file. envScanUser carries
+// the DOMAIN\user and envWMIPassword its password. When either is empty the
+// authposture stage self-skips (D-06) and the run still ships a complete payload.
+const (
+	envScanUser    = "CYSEC_SCAN_USER"
+	envWMIPassword = "CYSEC_WMI_PASSWORD"
+)
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -122,7 +132,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 		{Name: pipeline.StageFingerprint, Run: func(ctx context.Context) error {
 			return fingerprint.Run(ctx, st, caps, fingerprint.Options{ProbeFragile: *probeFragile})
 		}},
-		{Name: pipeline.StageAuthPosture, Run: func(context.Context) error { return nil }},
+		{Name: pipeline.StageAuthPosture, Run: func(ctx context.Context) error {
+			return authposture.Run(ctx, st, caps, authposture.Options{
+				DomainUser: os.Getenv(envScanUser),
+				Password:   os.Getenv(envWMIPassword),
+				Workers:    authposture.DefaultWorkers,
+			})
+		}},
 	}
 
 	emitter := progress.NewEmitter(stdout)
