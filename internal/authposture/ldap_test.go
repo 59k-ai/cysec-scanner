@@ -181,3 +181,102 @@ func adFakeConn(baseDN string, policy map[string][]string, users []map[string][]
 		},
 	}
 }
+
+// TestReadADPasswordPolicyMaxPwdAgePrecision proves the WINAD-04 precision edge:
+// maxPwdAge (a negative 64-bit 100-ns interval) converts to positive whole days
+// without overflow or sign loss, and a never-expires / no-maximum / unparseable
+// value maps to a NULL MaxAgeDays pointer, never 0. It also proves the five
+// policy attrs map (minPwdLength, pwdProperties->ComplexityRequired,
+// lockoutThreshold, pwdHistoryLength) and EvidenceDN/AppliesTo are set.
+func TestReadADPasswordPolicyMaxPwdAgePrecision(t *testing.T) {
+	const base = "DC=lab,DC=cysec,DC=test"
+	cases := []struct {
+		name     string
+		maxPwd   string
+		wantDays *int
+	}{
+		{"ws-default-42-days", "-37108517437440", intp(42)},
+		{"never-expires-int64-min", "-9223372036854775808", nil},
+		{"no-maximum-zero", "0", nil},
+		{"unparseable-empty", "", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			policy := map[string][]string{
+				"minPwdLength":     {"7"},
+				"pwdProperties":    {"1"}, // bit 0x1 -> ComplexityRequired true
+				"lockoutThreshold": {"5"},
+				"pwdHistoryLength": {"24"},
+				"maxPwdAge":        {tc.maxPwd},
+			}
+			hf := newHostFacts()
+			readADEntries(adFakeConn(base, policy, nil), "ip:x", &hf)
+			if len(hf.passwordPolicies) != 1 {
+				t.Fatalf("got %d password policies, want 1", len(hf.passwordPolicies))
+			}
+			p := hf.passwordPolicies[0]
+			if (p.MaxAgeDays == nil) != (tc.wantDays == nil) {
+				t.Fatalf("MaxAgeDays nil-ness mismatch: got %v, want nil=%v", p.MaxAgeDays, tc.wantDays == nil)
+			}
+			if tc.wantDays != nil && *p.MaxAgeDays != *tc.wantDays {
+				t.Fatalf("MaxAgeDays = %d, want %d (no overflow / no sign loss)", *p.MaxAgeDays, *tc.wantDays)
+			}
+			if p.EvidenceDN != base {
+				t.Errorf("EvidenceDN = %q, want %q", p.EvidenceDN, base)
+			}
+			if p.AppliesTo == nil {
+				t.Error("AppliesTo must be a non-nil slice")
+			}
+			if p.ComplexityRequired == nil || !*p.ComplexityRequired {
+				t.Errorf("ComplexityRequired = %v, want true (pwdProperties bit 0x1)", p.ComplexityRequired)
+			}
+			if p.MinLength == nil || *p.MinLength != 7 {
+				t.Errorf("MinLength = %v, want 7", p.MinLength)
+			}
+			if p.LockoutThreshold == nil || *p.LockoutThreshold != 5 {
+				t.Errorf("LockoutThreshold = %v, want 5", p.LockoutThreshold)
+			}
+			if p.HistoryLength == nil || *p.HistoryLength != 24 {
+				t.Errorf("HistoryLength = %v, want 24", p.HistoryLength)
+			}
+		})
+	}
+}
+
+// TestReadADIdentitiesUACAndPrivileged proves each AD user maps to an IdentityItem
+// with Source exactly "active_directory", IsActive derived from the UAC
+// ACCOUNTDISABLE bit (0x2 set -> disabled), and IsPrivileged from a privileged
+// memberOf (domain-admins-class).
+func TestReadADIdentitiesUACAndPrivileged(t *testing.T) {
+	const base = "DC=lab,DC=cysec,DC=test"
+	users := []map[string][]string{
+		{ // enabled (512 = normal account) and privileged (Domain Admins)
+			"sAMAccountName":     {"svc_admin"},
+			"userAccountControl": {"512"},
+			"memberOf":           {"CN=Domain Admins,CN=Users,DC=lab,DC=cysec,DC=test"},
+		},
+		{ // disabled (514 = 512|ACCOUNTDISABLE 0x2), not privileged
+			"sAMAccountName":     {"old_user"},
+			"userAccountControl": {"514"},
+			"memberOf":           {"CN=Domain Users,CN=Users,DC=lab,DC=cysec,DC=test"},
+		},
+	}
+	hf := newHostFacts()
+	readADEntries(adFakeConn(base, map[string][]string{}, users), "ip:x", &hf)
+	if len(hf.identities) != 2 {
+		t.Fatalf("got %d identities, want 2", len(hf.identities))
+	}
+	byName := map[string]payload.IdentityItem{}
+	for _, id := range hf.identities {
+		if id.Source != "active_directory" {
+			t.Errorf("identity %q Source = %q, want active_directory", id.Username, id.Source)
+		}
+		byName[id.Username] = id
+	}
+	if a := byName["svc_admin"]; !a.IsActive || !a.IsPrivileged {
+		t.Errorf("svc_admin: IsActive=%v IsPrivileged=%v, want true/true", a.IsActive, a.IsPrivileged)
+	}
+	if o := byName["old_user"]; o.IsActive || o.IsPrivileged {
+		t.Errorf("old_user: IsActive=%v IsPrivileged=%v, want false/false (ACCOUNTDISABLE set, not privileged)", o.IsActive, o.IsPrivileged)
+	}
+}
