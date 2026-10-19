@@ -5,9 +5,15 @@ package authposture
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/oiweiwei/go-msrpc/msrpc/dcom/wmio"
+
+	"github.com/cysec-watch/cysec-scanner/internal/capabilities"
+	"github.com/cysec-watch/cysec-scanner/internal/payload"
+	"github.com/cysec-watch/cysec-scanner/internal/scanstate"
 )
 
 // fakeWMISession is an in-memory wmiSession for Linux CI: it returns canned rows
@@ -170,3 +176,149 @@ type wmiErrString string
 
 func (e wmiErrString) Error() string { return string(e) }
 func wmiErr(s string) error          { return wmiErrString(s) }
+
+// TestWMIClassParity is the operational WINAD-05 regression for the WMI reads: it
+// asserts the package's class/namespace table EQUALS the spike's authoritative
+// seven-class set across the three namespaces, with the banned MSI-reconfiguring
+// product class deliberately absent. If a class is added, dropped, or renamed —
+// or the banned class creeps in — parity fails, flagging a cutover drift from the
+// Python agent. The expected set is encoded in-test (the spike source lives
+// outside this module and is not read at runtime).
+func TestWMIClassParity(t *testing.T) {
+	t.Parallel()
+
+	type nc struct{ ns, class string }
+	want := map[nc]bool{
+		{"//./root/cimv2", "Win32_OperatingSystem"}:                                      false,
+		{"//./root/cimv2", "Win32_QuickFixEngineering"}:                                  false,
+		{"//./root/cimv2", "Win32_Service"}:                                              false,
+		{"//./root/cimv2", "Win32_InstalledWin32Program"}:                                false,
+		{"//./root/cimv2", "Win32_NTEventlogFile"}:                                       false,
+		{"//./root/cimv2/Security/MicrosoftVolumeEncryption", "Win32_EncryptableVolume"}: false,
+		{"//./root/Microsoft/Windows/Defender", "MSFT_MpComputerStatus"}:                 false,
+	}
+
+	if len(wmiQueries) != len(want) {
+		t.Fatalf("wmiQueries has %d entries, want %d (class set drifted from the spike)", len(wmiQueries), len(want))
+	}
+
+	namespaces := map[string]bool{}
+	for _, q := range wmiQueries {
+		namespaces[q.namespace] = true
+		key := nc{q.namespace, q.class}
+		seen, expected := want[key]
+		if !expected {
+			t.Errorf("unexpected WMI class/namespace in table: %s @ %s", q.class, q.namespace)
+			continue
+		}
+		if seen {
+			t.Errorf("duplicate WMI class/namespace in table: %s @ %s", q.class, q.namespace)
+		}
+		want[key] = true
+
+		// Each query's WQL must actually SELECT FROM its declared class, and the
+		// banned MSI-reconfiguring product class must never be the FROM target.
+		if !strings.Contains(q.wql, "FROM "+q.class) {
+			t.Errorf("query for %s does not SELECT FROM %s: %q", q.class, q.class, q.wql)
+		}
+		if strings.Contains(q.wql, "FROM Win32_Product") {
+			t.Errorf("banned MSI-reconfiguring product class present in query: %q", q.wql)
+		}
+	}
+	for key, seen := range want {
+		if !seen {
+			t.Errorf("expected WMI class/namespace missing from table: %s @ %s", key.class, key.ns)
+		}
+	}
+
+	if len(namespaces) != 3 {
+		t.Errorf("WMI table spans %d namespaces, want 3", len(namespaces))
+	}
+}
+
+// TestWMIStrictValidV6EndToEnd drives the injectable reader with rows for all
+// seven classes through the REAL stage (readWMI = liveWMIRead over a fake
+// session), snapshots the payload, Normalizes it, and asserts software_inventory,
+// missing_kbs, and configuration_checks are all populated and the whole payload
+// marshals strict-valid at schema_version 6 (required slices as [] not null,
+// pointer optionals null when unset). It also asserts the scan credential never
+// appears in the marshalled payload (T-6-01).
+func TestWMIStrictValidV6EndToEnd(t *testing.T) {
+	origRead := readWMI
+	origOpen := openWMISession
+	defer func() { readWMI = origRead; openWMISession = origOpen }()
+
+	readWMI = liveWMIRead // exercise the real class table + row mapping
+	openWMISession = func(_ context.Context, _ string) (wmiSession, error) {
+		return &fakeWMISession{rowsByWQL: allClassRows()}, nil
+	}
+
+	st := scanstate.New("full", "engine/test")
+	seedGatedWindows(st, "ip:10.0.0.10", "10.0.0.10")
+
+	const pw = "S3cr3t-PW-do-not-leak"
+	if err := Run(context.Background(), st, capabilities.Capabilities{},
+		Options{DomainUser: "LAB\\scan", Password: pw, Workers: DefaultWorkers}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	pl := st.Payload()
+	pl.Normalize()
+
+	if len(pl.SoftwareInventory) != 1 {
+		t.Errorf("software_inventory = %d, want 1", len(pl.SoftwareInventory))
+	}
+	if len(pl.MissingKbs) != 1 {
+		t.Errorf("missing_kbs = %d, want 1", len(pl.MissingKbs))
+	}
+	if len(pl.ConfigurationChecks) != 4 {
+		t.Errorf("configuration_checks = %d, want 4", len(pl.ConfigurationChecks))
+	}
+	// The OS fields landed on the gated asset.
+	if pl.Assets[0].OperatingSystem == "" {
+		t.Errorf("asset operating_system not populated from Win32_OperatingSystem")
+	}
+
+	// Every configuration_checks row uses only the allowed enum spellings.
+	for _, c := range pl.ConfigurationChecks {
+		if !allowedCheckStatus[c.Status] {
+			t.Errorf("config check %q status %q not an allowed member", c.CheckCode, c.Status)
+		}
+		if !allowedSeverity[c.Severity] {
+			t.Errorf("config check %q severity %q not an allowed member", c.CheckCode, c.Severity)
+		}
+	}
+
+	raw, err := json.Marshal(pl)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	s := string(raw)
+	for _, want := range []string{
+		`"schema_version":6`,
+		`"software_inventory":[`,
+		`"missing_kbs":[`,
+		`"configuration_checks":[`,
+		`"assets":[`,
+		`"identities":[]`,
+		`"password_policies":[]`,
+		`"tls_probes":[]`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("missing %q in strict-valid payload; json=%s", want, s)
+		}
+	}
+
+	var back payload.Payload
+	if err := json.Unmarshal(raw, &back); err != nil {
+		t.Fatalf("round-trip unmarshal: %v", err)
+	}
+	if back.SchemaVersion != 6 {
+		t.Errorf("round-trip schema_version = %d, want 6", back.SchemaVersion)
+	}
+
+	// T-6-01: the scan credential never reaches the wire payload.
+	if strings.Contains(s, pw) {
+		t.Fatal("scan password leaked into the marshalled payload")
+	}
+}
