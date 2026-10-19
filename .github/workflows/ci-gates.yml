@@ -1,0 +1,126 @@
+name: ci-gates
+
+# LIB-04 blocking CI gates (CI-gate-as-contract). Every job here MUST redden the
+# pipeline on failure: NONE of them carries an allow-failure / failure-suppression
+# escape hatch. These gates stand up the keystone invariants — static
+# cross-platform binaries, the locked go-1.22 pin, a license-clean module graph,
+# a name-clean public tree, and no inbound listening socket — BEFORE any external
+# module pins and imports the public API, so a regression reddens rather than
+# ships. Modelled on governance.yml (same triggers, runner, checkout@v4,
+# setup-go@v5 "1.22", no escape hatch).
+on:
+  pull_request:
+  push:
+
+jobs:
+  # Gate 1 — static cross-compile matrix (LIB-04, threat T-9-11).
+  # Proves the engine builds as a fully static binary on EVERY shipped
+  # OS/arch target with CGO_ENABLED=0 and NO C toolchain. A cgo regression
+  # (an `import "C"` or a cgo-only dependency) would need a C compiler and
+  # reddens the affected matrix leg. CC is pinned to a non-existent compiler as
+  # belt-and-suspenders: CGO_ENABLED=0 already prevents any C-toolchain
+  # invocation, but if cgo were ever accidentally re-enabled the build fails
+  # loudly for want of a C compiler, literally satisfying the "no-C-compiler
+  # runner" contract even though ubuntu-latest ships gcc. fail-fast is off so
+  # every target leg builds independently and one failure cannot mask another.
+  cross-compile:
+    name: static cross-compile (CGO_ENABLED=0, no C compiler)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, windows, darwin]
+        goarch: [amd64, arm64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          check-latest: true
+
+      - name: "Static build ${{ matrix.goos }}/${{ matrix.goarch }} (no cgo, no C compiler)"
+        env:
+          CGO_ENABLED: "0"
+          CC: cc-does-not-exist
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build -trimpath -ldflags='-s -w' ./...
+
+  # Gate 2 — go-1.22 directive assertion (LIB-04, threat T-9-SC).
+  # The locked static-build pin depends on go.mod declaring EXACTLY `go 1.22`
+  # with NO `toolchain` line (a toolchain line would silently raise the pin and
+  # break the locked go-1.22 contract). Reddens if the directive is not exactly
+  # `go 1.22`, or if any toolchain line is present.
+  go-directive:
+    name: go-1.22 directive pin
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Assert go.mod declares exactly 'go 1.22' and no toolchain line
+        run: |
+          grep -qxE 'go 1\.22' go.mod || { echo "go.mod does not declare exactly 'go 1.22'"; exit 1; }
+          if grep -qE '^toolchain ' go.mod; then
+            echo "go.mod carries a toolchain line that would raise the go-1.22 pin"
+            exit 1
+          fi
+          echo "GO122_PINNED"
+
+  # Gate 3 — dependency-license gate (LIB-04, threat T-9-SC).
+  # Reddens if ANY forbidden/restricted (copyleft/OEM) license appears in the Go
+  # module graph. go-licenses is PINNED by commit SHA (v1.6.0), never @latest —
+  # it is a CI dev tool, not a shipped dependency. Copied from governance.yml's
+  # licenses job (same pinned SHA + same --disallowed_types set). No
+  # failure-suppression: a forbidden dependency MUST redden the pipeline.
+  licenses:
+    name: dependency license gate (go-licenses)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          check-latest: true
+
+      - name: Install go-licenses (pinned by commit SHA; Apache-2.0)
+        run: go install github.com/google/go-licenses@5348b744d0983d85713295ea08a20cca1654a45e
+
+      - name: Resolve module graph
+        run: go mod download
+
+      - name: "go-licenses check (disallowed: forbidden, restricted)"
+        run: go-licenses check ./... --disallowed_types=forbidden,restricted
+
+  # Gate 4 — library build + test + out-of-module consumer proof (LIB-02).
+  # Builds and tests the whole module, then drives the out-of-module consumer
+  # (a separate Go module that imports only the public packages and runs the
+  # engine with no proprietary knowledge). Reddens if the public import contract
+  # or any in-tree test regresses.
+  library:
+    name: library build + test + consumer proof
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          check-latest: true
+
+      - name: Build module
+        run: go build ./...
+
+      - name: Test module
+        run: go test ./...
+
+      - name: Out-of-module consumer test
+        run: cd tests/consumer && go test ./...
