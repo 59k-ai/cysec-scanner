@@ -117,29 +117,46 @@ func TestDBVersionRecorded(t *testing.T) {
 	}
 }
 
-// TestPrecedenceMissKeepsPhase4Value proves a non-SSH banner (a miss) leaves the
-// existing port-stage product and its source label untouched (D-11 — no clobber).
-func TestPrecedenceMissKeepsPhase4Value(t *testing.T) {
+// TestRetainedPhase4ValueCarriesProvenance proves a retained light-parse value
+// (the database did not promote) keeps its value AND gains its paired provenance
+// on the wire: a full HTTP response block whose Server value the http database
+// does NOT match leaves the port-stage Product untouched (D-11 — a miss never
+// nulls a good value) but stamps source=port-banner-v1 + confidence=0.3, so the
+// wire never carries a product without its paired source + confidence (FPRINT-03).
+func TestRetainedPhase4ValueCarriesProvenance(t *testing.T) {
 	t.Parallel()
 
-	phase4Source := "port-banner-v1"
-	phase4Conf := 0.3
-	st := seedAsset(t, "220 some-ftp-server ready", payload.ServiceItem{
-		Port:                      21,
-		Protocol:                  "tcp",
-		ServiceName:               "ftp",
-		Product:                   strptr("LightParseFTP"),
-		ServiceVersion:            strptr("1.0"),
-		ServiceIdentitySource:     &phase4Source,
-		ServiceIdentityConfidence: &phase4Conf,
+	// A full response block whose Server value matches no http fingerprint.
+	const block = "HTTP/1.0 200 OK\r\nServer: Zarniwoop-HTTPd/0.0-nomatch\r\nContent-Type: text/html\r\n\r\n"
+
+	// Confirm the Recog miss directly against the real corpus so the test exercises
+	// the miss branch reaching the backfill, not a silent match.
+	corpus, err := recog.LoadCorpus(scannerdata.DataFS, recogDir)
+	if err != nil {
+		t.Fatalf("load corpus: %v", err)
+	}
+	if _, matched := matchService(corpus, 80, block); matched {
+		t.Fatalf("precondition: the Server value was expected to miss the http database")
+	}
+
+	// The port stage sets Product to the RAW Server-header value and records no
+	// wire-level source (its provenance rides the classification evidence map).
+	st := seedAsset(t, block, payload.ServiceItem{
+		Port:        80,
+		Protocol:    "tcp",
+		ServiceName: "http",
+		Product:     strptr("Zarniwoop-HTTPd/0.0-nomatch"),
 	})
 	pl := runStage(t, st)
 	svc := pl.Assets[0].Services[0]
-	if deref(svc.Product) != "LightParseFTP" || deref(svc.ServiceVersion) != "1.0" {
-		t.Errorf("miss clobbered the existing value: %+v", svc)
+	if deref(svc.Product) != "Zarniwoop-HTTPd/0.0-nomatch" {
+		t.Errorf("miss clobbered the retained value: %q", deref(svc.Product))
 	}
-	if deref(svc.ServiceIdentitySource) != phase4Source {
-		t.Errorf("miss re-labeled the source: %q", deref(svc.ServiceIdentitySource))
+	if got := deref(svc.ServiceIdentitySource); got != "port-banner-v1" {
+		t.Errorf("service_identity_source = %q, want port-banner-v1", got)
+	}
+	if svc.ServiceIdentityConfidence == nil || *svc.ServiceIdentityConfidence != 0.3 {
+		t.Errorf("service_identity_confidence = %v, want 0.3", svc.ServiceIdentityConfidence)
 	}
 	assertStrictValidV6(t, pl)
 }
@@ -150,16 +167,12 @@ func TestPrecedenceMissKeepsPhase4Value(t *testing.T) {
 func TestPrecedenceOverwritesPhase4(t *testing.T) {
 	t.Parallel()
 
-	phase4Source := "port-banner-v1"
-	phase4Conf := 0.3
 	st := seedAsset(t, "SSH-2.0-OpenSSH_5.9p1", payload.ServiceItem{
-		Port:                      22,
-		Protocol:                  "tcp",
-		ServiceName:               "ssh",
-		Product:                   strptr("GenericSSH"),
-		ServiceVersion:            strptr("0.0"),
-		ServiceIdentitySource:     &phase4Source,
-		ServiceIdentityConfidence: &phase4Conf,
+		Port:           22,
+		Protocol:       "tcp",
+		ServiceName:    "ssh",
+		Product:        strptr("GenericSSH"),
+		ServiceVersion: strptr("0.0"),
 	})
 	pl := runStage(t, st)
 	svc := pl.Assets[0].Services[0]
@@ -177,13 +190,11 @@ func TestPrecedenceOverwritesPhase4(t *testing.T) {
 func TestPrecedenceAtCutIsInclusive(t *testing.T) {
 	t.Parallel()
 
-	phase4Source := "port-banner-v1"
 	base := func() *payload.ServiceItem {
 		return &payload.ServiceItem{
-			Port:                  22,
-			Product:               strptr("Phase4SSH"),
-			ServiceVersion:        strptr("0.1"),
-			ServiceIdentitySource: &phase4Source,
+			Port:           22,
+			Product:        strptr("Phase4SSH"),
+			ServiceVersion: strptr("0.1"),
 		}
 	}
 
@@ -199,7 +210,7 @@ func TestPrecedenceAtCutIsInclusive(t *testing.T) {
 	if applyServiceIdentity(belowCut, fakeIdentity("OpenSSH", "9.0", confidenceCut-0.01), confidenceCut) {
 		t.Fatal("below-cut match was promoted; should be suppressed")
 	}
-	if deref(belowCut.Product) != "Phase4SSH" || deref(belowCut.ServiceIdentitySource) != phase4Source {
+	if deref(belowCut.Product) != "Phase4SSH" || belowCut.ServiceIdentitySource != nil {
 		t.Errorf("below-cut match clobbered the Phase-4 value: %+v", belowCut)
 	}
 }
