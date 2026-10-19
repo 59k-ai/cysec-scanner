@@ -31,7 +31,7 @@ import (
 	"github.com/59k-ai/cysec-scanner/internal/fingerprint/osfp"
 	"github.com/59k-ai/cysec-scanner/internal/fingerprint/recog"
 	"github.com/59k-ai/cysec-scanner/internal/governance"
-	"github.com/59k-ai/cysec-scanner/internal/payload"
+	"github.com/59k-ai/cysec-scanner/payload"
 	"github.com/59k-ai/cysec-scanner/internal/scanstate"
 )
 

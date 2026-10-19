@@ -1,10 +1,10 @@
 // Copyright 2026 59k GmbH
 // SPDX-License-Identifier: Apache-2.0
 
-// Package payload is the Go-side hand-mirror of the cysec.watch Collector wire
-// schema at v6.
+// Package payload is the Go-side hand-mirror of the authoritative wire model at
+// schema v6.
 //
-// The Collector's strict reference schema is the single SOURCE OF TRUTH; these
+// The authoritative strict reference schema is the single SOURCE OF TRUTH; these
 // structs reproduce its field names, JSON tags and enum string values exactly
 // so a marshalled Payload re-validates under that strict (unknown-fields-
 // forbidden) schema. Agreement between the two is confirmed out-of-tree by a

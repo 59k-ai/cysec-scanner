@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/59k-ai/cysec-scanner/internal/capabilities"
-	"github.com/59k-ai/cysec-scanner/internal/payload"
+	"github.com/59k-ai/cysec-scanner/payload"
 	"github.com/59k-ai/cysec-scanner/internal/scanstate"
 )
 

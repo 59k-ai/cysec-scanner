@@ -6,7 +6,7 @@ package authposture
 import (
 	"testing"
 
-	"github.com/59k-ai/cysec-scanner/internal/payload"
+	"github.com/59k-ai/cysec-scanner/payload"
 )
 
 // ptr is a generic pointer helper shared by the authposture tests.

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/59k-ai/cysec-scanner/internal/payload"
+	"github.com/59k-ai/cysec-scanner/payload"
 )
 
 // smb2.go is the live, READ-ONLY SMB2 negotiate probe plus the registry+probe

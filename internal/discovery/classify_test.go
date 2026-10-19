@@ -6,7 +6,7 @@ package discovery
 import (
 	"testing"
 
-	"github.com/59k-ai/cysec-scanner/internal/payload"
+	"github.com/59k-ai/cysec-scanner/payload"
 )
 
 // TestClassifyEvidence proves the DISC-05 evidence assembly: a host whose

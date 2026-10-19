@@ -12,7 +12,7 @@ import (
 	"github.com/oiweiwei/go-msrpc/msrpc/dcom/wmio"
 
 	"github.com/59k-ai/cysec-scanner/internal/capabilities"
-	"github.com/59k-ai/cysec-scanner/internal/payload"
+	"github.com/59k-ai/cysec-scanner/payload"
 	"github.com/59k-ai/cysec-scanner/internal/scanstate"
 )
 

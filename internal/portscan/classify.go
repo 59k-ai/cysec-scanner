@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/59k-ai/cysec-scanner/internal/payload"
+	"github.com/59k-ai/cysec-scanner/payload"
 )
 
 // Deterministic device classification for the port stage (PORT-05, D-08/D-09/

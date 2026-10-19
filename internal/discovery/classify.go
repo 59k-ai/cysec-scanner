@@ -3,7 +3,7 @@
 
 package discovery
 
-import "github.com/59k-ai/cysec-scanner/internal/payload"
+import "github.com/59k-ai/cysec-scanner/payload"
 
 // Classification-evidence shaping (DISC-05). This enrichment runs LAST in the
 // discovery run — after Layer-2 and hostname enrichment — and ASSEMBLES each

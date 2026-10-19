@@ -31,10 +31,10 @@ import (
 	"github.com/59k-ai/cysec-scanner/internal/capabilities"
 	"github.com/59k-ai/cysec-scanner/internal/discovery"
 	"github.com/59k-ai/cysec-scanner/internal/fingerprint"
-	"github.com/59k-ai/cysec-scanner/internal/payload"
+	"github.com/59k-ai/cysec-scanner/payload"
 	"github.com/59k-ai/cysec-scanner/internal/pipeline"
 	"github.com/59k-ai/cysec-scanner/internal/portscan"
-	"github.com/59k-ai/cysec-scanner/internal/progress"
+	"github.com/59k-ai/cysec-scanner/progress"
 	"github.com/59k-ai/cysec-scanner/internal/scanstate"
 )
 

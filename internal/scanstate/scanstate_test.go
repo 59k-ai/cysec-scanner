@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/59k-ai/cysec-scanner/internal/payload"
+	"github.com/59k-ai/cysec-scanner/payload"
 )
 
 // TestSnapshotIsolation proves Payload() returns a snapshot whose asset slice

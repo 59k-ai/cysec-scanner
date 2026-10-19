@@ -12,7 +12,7 @@ import (
 
 	"github.com/go-ldap/ldap/v3"
 
-	"github.com/59k-ai/cysec-scanner/internal/payload"
+	"github.com/59k-ai/cysec-scanner/payload"
 )
 
 // fakeLDAPConn is a canned ldapConn for the off-DC bind-order and attribute-
