@@ -8,7 +8,9 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"math"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -138,12 +140,176 @@ func readAD(ctx context.Context, ai payload.AssetItem, cred scanCredential) host
 	return hf
 }
 
+// userAccountControl ACCOUNTDISABLE bit (MS-ADTS): when set, the account is
+// disabled -> IdentityItem.IsActive is false.
+const uacAccountDisable = 0x2
+
+// per100nsPerDay is the number of 100-nanosecond intervals in one day
+// (10^7 per second * 86400 seconds), the unit AD stores maxPwdAge in.
+const per100nsPerDay int64 = 864000000000
+
+// privilegedGroupCNs are the domain-admins-class group RDNs that mark an identity
+// as privileged when present in its memberOf. Matched case-insensitively on the
+// "cn=<name>" RDN of each memberOf DN.
+var privilegedGroupCNs = []string{
+	"domain admins", "enterprise admins", "schema admins",
+	"administrators", "account operators", "backup operators",
+}
+
 // readADEntries reads the domain password policy + identities over a bound
-// connection and maps them onto hostFacts. GREEN (Task 2) fills this.
+// connection and maps them onto hostFacts. Each read is independent and
+// never-raises: a failure lands a per-check note and the other reads still map.
+// externalID is the gated host that produced this bind (provenance only; AD
+// policy/identities are domain-scoped and carry no asset FK in the v6 schema).
 func readADEntries(conn ldapConn, externalID string, hf *hostFacts) {
-	_ = conn
 	_ = externalID
-	_ = hf
+	baseDN, err := readBaseDN(conn)
+	if err != nil {
+		hf.note(noteKeyLDAP+"_rootdse", err.Error())
+		return
+	}
+	readPasswordPolicy(conn, baseDN, hf)
+	readIdentities(conn, baseDN, hf)
+}
+
+// readBaseDN reads the domain naming context (search base) from RootDSE.
+func readBaseDN(conn ldapConn) (string, error) {
+	req := ldap.NewSearchRequest("", ldap.ScopeBaseObject, ldap.NeverDerefAliases, 0, 0, false,
+		"(objectClass=*)", []string{"defaultNamingContext"}, nil)
+	res, err := conn.Search(req)
+	if err != nil {
+		return "", fmt.Errorf("rootdse: %w", err)
+	}
+	if len(res.Entries) == 0 {
+		return "", errors.New("rootdse: no entry")
+	}
+	dn := res.Entries[0].GetAttributeValue("defaultNamingContext")
+	if dn == "" {
+		return "", errors.New("rootdse: defaultNamingContext absent")
+	}
+	return dn, nil
+}
+
+// readPasswordPolicy reads the default-domain password policy from the base DN
+// (read-only ScopeBaseObject search) and maps it onto one PasswordPolicyItem.
+func readPasswordPolicy(conn ldapConn, baseDN string, hf *hostFacts) {
+	req := ldap.NewSearchRequest(baseDN, ldap.ScopeBaseObject, ldap.NeverDerefAliases, 0, 0, false,
+		"(objectClass=*)",
+		[]string{"minPwdLength", "pwdProperties", "lockoutThreshold", "maxPwdAge", "pwdHistoryLength"}, nil)
+	res, err := conn.Search(req)
+	if err != nil {
+		hf.note(noteKeyLDAP+"_password_policy", err.Error())
+		return
+	}
+	if len(res.Entries) == 0 {
+		hf.note(noteKeyLDAP+"_password_policy", "no base-DN entry")
+		return
+	}
+	e := res.Entries[0]
+	hf.passwordPolicies = append(hf.passwordPolicies, payload.PasswordPolicyItem{
+		PolicyName:         "Default Domain Policy",
+		Scope:              "domain",
+		MinLength:          parseOptInt(e.GetAttributeValue("minPwdLength")),
+		HistoryLength:      parseOptInt(e.GetAttributeValue("pwdHistoryLength")),
+		LockoutThreshold:   parseOptInt(e.GetAttributeValue("lockoutThreshold")),
+		MaxAgeDays:         parseMaxPwdAgeDays(e.GetAttributeValue("maxPwdAge")),
+		ComplexityRequired: complexityFromPwdProperties(e.GetAttributeValue("pwdProperties")),
+		AppliesTo:          []string{},
+		EvidenceDN:         baseDN,
+	})
+}
+
+// readIdentities reads the domain user accounts (paged, read-only whole-subtree
+// search) and maps each onto an IdentityItem.
+func readIdentities(conn ldapConn, baseDN string, hf *hostFacts) {
+	req := ldap.NewSearchRequest(baseDN, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
+		"(&(objectCategory=person)(objectClass=user))",
+		[]string{"sAMAccountName", "userAccountControl", "servicePrincipalName", "memberOf"}, nil)
+	res, err := conn.SearchWithPaging(req, identityPageSize)
+	if err != nil {
+		hf.note(noteKeyLDAP+"_identities", err.Error())
+		return
+	}
+	for _, e := range res.Entries {
+		sam := e.GetAttributeValue("sAMAccountName")
+		if sam == "" {
+			continue
+		}
+		hf.identities = append(hf.identities, payload.IdentityItem{
+			ExternalID:   "ad:" + sam,
+			Username:     sam,
+			Source:       adIdentitySource,
+			IsActive:     isActiveFromUAC(e.GetAttributeValue("userAccountControl")),
+			IsPrivileged: isPrivilegedFromMemberOf(e.GetAttributeValues("memberOf")),
+		})
+	}
+}
+
+// parseOptInt parses a decimal AD attribute into *int, nil on empty/unparseable
+// (so an unobserved value marshals to JSON null, not a fabricated 0).
+func parseOptInt(s string) *int {
+	v, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil {
+		return nil
+	}
+	return &v
+}
+
+// parseMaxPwdAgeDays converts AD's maxPwdAge (a signed 64-bit 100-nanosecond
+// interval, stored negative) into whole days. It is the WINAD-04 precision edge:
+// no overflow, no sign loss, and a zero / never-expires (Int64 min) / unparseable
+// value yields a NULL pointer (JSON null), never 0.
+func parseMaxPwdAgeDays(s string) *int {
+	v, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	if err != nil {
+		return nil
+	}
+	// 0 = no maximum; math.MinInt64 (0x8000000000000000) = "never expires".
+	if v == 0 || v == math.MinInt64 {
+		return nil
+	}
+	mag := v
+	if mag < 0 {
+		mag = -mag // safe: v != math.MinInt64, so negation does not overflow
+	}
+	days := int(mag / per100nsPerDay)
+	return &days
+}
+
+// complexityFromPwdProperties maps the pwdProperties DOMAIN_PASSWORD_COMPLEX bit
+// (0x1) to a *bool; nil when pwdProperties is absent/unparseable.
+func complexityFromPwdProperties(s string) *bool {
+	v, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	if err != nil {
+		return nil
+	}
+	b := v&0x1 != 0
+	return &b
+}
+
+// isActiveFromUAC derives IsActive from the userAccountControl ACCOUNTDISABLE bit
+// (0x2 set -> disabled). An absent/unparseable UAC assumes active (the scanner
+// emits evidence; it never fabricates a disabled account).
+func isActiveFromUAC(s string) bool {
+	v, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	if err != nil {
+		return true
+	}
+	return v&uacAccountDisable == 0
+}
+
+// isPrivilegedFromMemberOf reports whether any memberOf DN names a privileged
+// (domain-admins-class) group, matched on the lowercased "cn=<name>" RDN.
+func isPrivilegedFromMemberOf(memberOf []string) bool {
+	for _, dn := range memberOf {
+		low := strings.ToLower(dn)
+		for _, g := range privilegedGroupCNs {
+			if strings.Contains(low, "cn="+g) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // liveBindAttempt is the real dialer. For LDAPS it opens a TLS channel to 636 and
