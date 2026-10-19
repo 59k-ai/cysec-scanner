@@ -1,18 +1,15 @@
 // Copyright 2026 59k GmbH
 // SPDX-License-Identifier: Apache-2.0
 
-// Command cysec-scanner is the pure-Go evidence engine that runs behind the
-// closed Collector wrapper. This Phase-2 skeleton (D-04) is a real
-// compiled binary, not a mock: it runs the staged pipeline under one cancelable
-// context, streams NDJSON ProgressEvents to stdout, logs to stderr via slog,
-// assembles an empty-ish strict-valid v5 payload and writes it to the
-// --payload-out file, then exits 0 on success / non-zero on a fatal error.
+// Command cysec-scanner is a thin CLI wrapper over the public scanner library.
+// It translates its flag surface into a scanner.Config, drives scanner.Run, and
+// serializes progress to NDJSON — it holds no scanning logic of its own.
 //
-// The engine↔wrapper contract (locked, D): stdout carries ONLY NDJSON progress
+// The engine<->wrapper contract (locked): stdout carries ONLY NDJSON progress
 // events; the payload goes to --payload-out, never stdout; logs go to stderr;
-// credentials arrive via the child environment, scope CIDRs via argv. The engine
-// opens no inbound socket and exposes no API of its own (ENG-04) — progress is
-// stdout NDJSON only. The grep gate in 02-02 Task 3 enforces that boundary.
+// scope CIDRs arrive via argv. The engine opens no inbound socket and exposes no
+// API of its own (ENG-04) — progress is stdout NDJSON only. The grep gate
+// enforces that boundary.
 package main
 
 import (
@@ -27,27 +24,10 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/59k-ai/cysec-scanner/internal/authposture"
-	"github.com/59k-ai/cysec-scanner/internal/capabilities"
-	"github.com/59k-ai/cysec-scanner/internal/discovery"
-	"github.com/59k-ai/cysec-scanner/internal/fingerprint"
-	"github.com/59k-ai/cysec-scanner/payload"
-	"github.com/59k-ai/cysec-scanner/internal/pipeline"
 	"github.com/59k-ai/cysec-scanner/internal/portscan"
+	"github.com/59k-ai/cysec-scanner/payload"
 	"github.com/59k-ai/cysec-scanner/progress"
-	"github.com/59k-ai/cysec-scanner/internal/scanstate"
-)
-
-// collectorVersion stamps the payload's collector_version field for this engine.
-const collectorVersion = "cysec-scanner-engine/0.0.0"
-
-// The single read-only domain scan account (D-05, ENG-03) is sourced ONLY from
-// the child environment — never from argv or a config file. envScanUser carries
-// the DOMAIN\user and envWMIPassword its password. When either is empty the
-// authposture stage self-skips (D-06) and the run still ships a complete payload.
-const (
-	envScanUser    = "CYSEC_SCAN_USER"
-	envWMIPassword = "CYSEC_WMI_PASSWORD"
+	"github.com/59k-ai/cysec-scanner/scanner"
 )
 
 func main() {
@@ -81,10 +61,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	// Resolve the port set: the curated default when no --ports override is given,
-	// otherwise the validated operator list/ranges (D-02). The resolved set rides
-	// under the active timing tier's scan-wide PPS cap.
-	resolvedPorts := portscan.DefaultPortSet
+	// Validate the operator --ports list/ranges up front (D-02). An empty set is
+	// left nil so scanner.Config falls back to the curated default port set.
+	var resolvedPorts []int
 	if *ports != "" {
 		parsed, err := portscan.ParsePorts(*ports)
 		if err != nil {
@@ -98,8 +77,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	// One cancelable context threaded through the whole pipeline (ENG-01).
-	// SIGINT/SIGTERM cancel it so an interrupted run stops cleanly.
+	// One cancelable context threaded through Run (ENG-01). SIGINT/SIGTERM cancel
+	// it so an interrupted run stops cleanly.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sigCh := make(chan os.Signal, 1)
@@ -114,40 +93,23 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 	}()
 
-	// ENG-06: detect the runtime capabilities exactly once at startup and thread
-	// the immutable value struct into the stages by value.
-	caps := capabilities.Detect()
-
-	// The shared accumulator the discovery stage writes assets into and later
-	// stages enrich. Stage closures capture it, so the pipeline control-flow
-	// package stays untouched (ENG-01).
-	st := scanstate.New(string(fullPayloadType), collectorVersion)
-	stages := []pipeline.Stage{
-		{Name: pipeline.StageDiscovery, Run: func(ctx context.Context) error {
-			return discovery.Run(ctx, st, caps, []string(cidrs))
-		}},
-		{Name: pipeline.StagePort, Run: func(ctx context.Context) error {
-			return portscan.Run(ctx, st, caps, portscan.Options{Tier: portscan.ResolveTier(*timing), Ports: resolvedPorts})
-		}},
-		{Name: pipeline.StageFingerprint, Run: func(ctx context.Context) error {
-			return fingerprint.Run(ctx, st, caps, fingerprint.Options{ProbeFragile: *probeFragile})
-		}},
-		{Name: pipeline.StageAuthPosture, Run: func(ctx context.Context) error {
-			return authposture.Run(ctx, st, caps, authposture.Options{
-				DomainUser: os.Getenv(envScanUser),
-				Password:   os.Getenv(envWMIPassword),
-				Workers:    authposture.DefaultWorkers,
-			})
-		}},
+	// The progress sink is a PURE NDJSON serializer: scanner.Run owns Seq/TS
+	// (D-08); the sink marshals each already-populated Event to one stdout line
+	// via the Emitter's atomic encode discipline (one JSON object per line, under
+	// a mutex). stdout carries ONLY NDJSON; the payload goes to --payload-out.
+	emitter := progress.NewEmitter(stdout)
+	sink := func(ev progress.Event) {
+		_ = emitter.Write(ev)
 	}
 
-	emitter := progress.NewEmitter(stdout)
-	_ = emitter.Phase(progress.PhaseStart, "collect")
-	runErr := pipeline.NewWithStages(stages).Run(ctx, func(stage pipeline.StageName) {
-		_ = emitter.Agent(progress.AgentStart, "collect", string(stage))
-	})
-	_ = emitter.Phase(progress.PhaseDone, "collect")
+	cfg := scanner.Config{
+		CIDRs:        []string(cidrs),
+		Timing:       *timing,
+		Ports:        resolvedPorts,
+		ProbeFragile: *probeFragile,
+	}
 
+	pl, runErr := scanner.Run(ctx, cfg, sink)
 	if runErr != nil {
 		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
 			logger.Error("pipeline cancelled", "err", runErr)
@@ -157,12 +119,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	// Snapshot the accumulated payload the stages populated.
-	pl := st.Payload()
-	// WR-02 — force every required container (top-level + nested) non-nil so a
-	// populated asset from a scanning stage never marshals a required list/map
-	// to JSON "null", which the strict reference schema 400-rejects.
-	pl.Normalize()
 	data, err := json.MarshalIndent(pl, "", "  ")
 	if err != nil {
 		logger.Error("payload marshal failed", "err", err)
@@ -175,9 +131,3 @@ func run(args []string, stdout, stderr io.Writer) int {
 	logger.Info("payload written", "path", *payloadOut, "schema_version", payload.SchemaVersion, "cidrs", len(cidrs))
 	return 0
 }
-
-// payloadKind is the engine's payload_type. "full" is the valid PayloadType
-// enum member used for a complete assessment run.
-type payloadKind string
-
-const fullPayloadType payloadKind = "full"
