@@ -51,6 +51,50 @@ func (s *ScanState) AddAsset(a payload.AssetItem) {
 	s.pl.Assets = append(s.pl.Assets, a)
 }
 
+// AddSoftwareInventory appends one installed-software row to the accumulated
+// payload's top-level software_inventory slice. It mirrors AddAsset exactly
+// (mutex-guarded append) and is safe for concurrent callers. The authposture
+// stage is the single caller; its readers return facts and authposture.go does
+// the append through here (the reader files never call ScanState).
+func (s *ScanState) AddSoftwareInventory(item payload.SoftwareInventoryItem) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pl.SoftwareInventory = append(s.pl.SoftwareInventory, item)
+}
+
+// AddMissingKb appends one missing-KB row to the accumulated payload's top-level
+// missing_kbs slice. Mutex-guarded append, mirroring AddAsset.
+func (s *ScanState) AddMissingKb(item payload.MissingKbItem) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pl.MissingKbs = append(s.pl.MissingKbs, item)
+}
+
+// AddConfigurationCheck appends one configuration-check row to the accumulated
+// payload's top-level configuration_checks slice. Mutex-guarded append,
+// mirroring AddAsset.
+func (s *ScanState) AddConfigurationCheck(item payload.ConfigurationCheckItem) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pl.ConfigurationChecks = append(s.pl.ConfigurationChecks, item)
+}
+
+// AddIdentity appends one identity row to the accumulated payload's top-level
+// identities slice. Mutex-guarded append, mirroring AddAsset.
+func (s *ScanState) AddIdentity(item payload.IdentityItem) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pl.Identities = append(s.pl.Identities, item)
+}
+
+// AddPasswordPolicy appends one password-policy row to the accumulated payload's
+// top-level password_policies slice. Mutex-guarded append, mirroring AddAsset.
+func (s *ScanState) AddPasswordPolicy(item payload.PasswordPolicyItem) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pl.PasswordPolicies = append(s.pl.PasswordPolicies, item)
+}
+
 // Payload returns a snapshot of the accumulated payload with its asset slice
 // copied, so the caller can mutate/Normalize the result without racing ongoing
 // writers or aliasing internal state.
