@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	scannerdata "github.com/cysec-watch/cysec-scanner"
 	"github.com/cysec-watch/cysec-scanner/internal/capabilities"
 	"github.com/cysec-watch/cysec-scanner/internal/fingerprint/osfp"
 	"github.com/cysec-watch/cysec-scanner/internal/fingerprint/recog"
@@ -261,17 +262,22 @@ func seedAssetWithEvidence(t *testing.T, evidence map[string]string, svc payload
 	return st
 }
 
-// TestHTTPBannerResolvesToV6 proves the multi-protocol routing closes FPRINT-01
-// end-to-end: a captured HTTP Server banner is routed to the http database (not
-// SSH-only) and resolves into the v6 service-identity fields with source
-// recog-v1 — a non-SSH protocol flowing all the way into the wire.
-func TestHTTPBannerResolvesToV6(t *testing.T) {
+// TestHTTPRealPortStageResolvesV6 proves the multi-protocol routing closes
+// FPRINT-01 end-to-end against the SHAPE the port stage actually captures: a FULL
+// HTTP response block (status line + header lines), not a pre-stripped Server
+// value. The fingerprint stage must extract the Server-header value before
+// matching the http database, resolving into the v6 service-identity fields with
+// source recog-v1 — a non-SSH protocol flowing all the way to the wire.
+func TestHTTPRealPortStageResolvesV6(t *testing.T) {
 	t.Parallel()
 
-	st := seedAsset(t, "nginx/1.4.6", payload.ServiceItem{
+	// The port stage stashes the full response block (sanitizeBanner keeps CR/LF),
+	// and its light parse sets Product to the RAW Server-header value.
+	st := seedAsset(t, "HTTP/1.0 200 OK\r\nServer: nginx/1.4.6\r\nContent-Type: text/html\r\n\r\n", payload.ServiceItem{
 		Port:        80,
 		Protocol:    "tcp",
 		ServiceName: "http",
+		Product:     strptr("nginx/1.4.6"),
 	})
 	pl := runStage(t, st)
 	svc := pl.Assets[0].Services[0]
@@ -287,6 +293,52 @@ func TestHTTPBannerResolvesToV6(t *testing.T) {
 	if got := deref(svc.ServiceIdentitySource); got != sourceRecogV1 {
 		t.Errorf("service_identity_source = %q, want %q", got, sourceRecogV1)
 	}
+	if svc.CPE == nil {
+		t.Errorf("cpe nil; want non-nil")
+	}
+	assertStrictValidV6(t, pl)
+}
+
+// TestBelowCutServiceMatchNoOSGuess proves a below-cut service match cannot leak
+// its OS family past the prefer-unknown cut. A real `220 ` SMTP greeting matches
+// the smtp database (preference 0.20 < cut) and that fingerprint carries an
+// os.family of Windows; with a corroborating windows reply-TTL family on the
+// asset, an UNGATED banner cue would amplify past the cut into an os_guess. The
+// cut-gate on bannerOSCue collection keeps the below-cut family out of the OS
+// engine, so the os_guess trio stays null together.
+func TestBelowCutServiceMatchNoOSGuess(t *testing.T) {
+	t.Parallel()
+
+	const smtpGreeting = "220 ArGoSoft Mail Server, Version 1.4 (1.4.0.7)"
+
+	// Confirm the preconditions with a direct probe on the real corpus: the greeting
+	// matches, carries an OS family, and is BELOW the confidence cut.
+	corpus, err := recog.LoadCorpus(scannerdata.DataFS, recogDir)
+	if err != nil {
+		t.Fatalf("load corpus: %v", err)
+	}
+	id, matched := matchService(corpus, 25, smtpGreeting)
+	if !matched {
+		t.Fatalf("precondition: smtp greeting did not match the corpus")
+	}
+	if id.OSFamily == "" {
+		t.Fatalf("precondition: matched smtp fingerprint carries no OS family")
+	}
+	if id.Confidence >= confidenceCut {
+		t.Fatalf("precondition: smtp match confidence %v not below cut %v", id.Confidence, confidenceCut)
+	}
+
+	st := seedAssetWithEvidence(t,
+		map[string]string{"os_ttl_family": "windows"},
+		payload.ServiceItem{Port: 25, Protocol: "tcp", ServiceName: "smtp"},
+		smtpGreeting,
+	)
+	pl := runStage(t, st)
+	a := pl.Assets[0]
+	if a.OSGuess != nil || a.OSGuessSource != nil || a.OSGuessConfidence != nil {
+		t.Errorf("below-cut OS family leaked into os_guess: guess=%v source=%v conf=%v",
+			a.OSGuess, a.OSGuessSource, a.OSGuessConfidence)
+	}
 	assertStrictValidV6(t, pl)
 }
 
@@ -300,7 +352,7 @@ func TestOSGuessFromTTLAndBanner(t *testing.T) {
 	st := seedAssetWithEvidence(t,
 		map[string]string{"os_ttl_family": "windows"},
 		payload.ServiceItem{Port: 21, Protocol: "tcp", ServiceName: "ftp"},
-		"foo.bar Microsoft FTP Service (Version 3.0).",
+		"220 foo.bar Microsoft FTP Service (Version 3.0).",
 	)
 	pl := runStage(t, st)
 	a := pl.Assets[0]
