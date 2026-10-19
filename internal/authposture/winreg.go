@@ -170,25 +170,47 @@ func readWinreg(ctx context.Context, ai payload.AssetItem, cred scanCredential) 
 	// the shared go-msrpc gssapi store; winreg reuses the WMI registration.
 	registerWMICredential(cred)
 
-	sess, err := openWinregSession(ctx, host)
-	if err != nil {
-		// Whole-session failure (dial/seal/HKLM open) is a per-check note, not a
-		// stage error, and adds NO registry rows (never-raises).
+	// Attempt the sealed registry read. A whole-session failure (dial/seal/HKLM
+	// open) is a per-check note, not a stage error, and adds NO registry rows — but
+	// the independent SMB2 probe below still runs (never-raises). The server-signing
+	// value's result is carried forward for the combiner.
+	var serverRequired regResult
+	var haveServerRequired bool
+	if sess, err := openWinregSession(ctx, host); err != nil {
 		hf.note(noteKeyWinreg, "session: "+err.Error())
-		return hf
-	}
-	defer sess.close()
-
-	// Read each value independently: a per-value failure lands a per-check note and
-	// observes "error" while the other values still map. The tri-state (present /
-	// present-0 / absent) survives onto each row's ObservedValue; absent is NEVER
-	// coerced to 0.
-	for _, w := range winregValues {
-		r := sess.queryDword(ctx, w.subkey, w.value)
-		if r.outcome == regError && r.err != nil {
-			hf.note(winregValueNoteKey(w.value), r.err.Error())
+	} else {
+		defer sess.close()
+		// Read each value independently: a per-value failure lands a per-check note
+		// and observes "error" while the other values still map. The tri-state
+		// (present / present-0 / absent) survives onto each row's ObservedValue;
+		// absent is NEVER coerced to 0.
+		for _, w := range winregValues {
+			r := sess.queryDword(ctx, w.subkey, w.value)
+			if r.outcome == regError && r.err != nil {
+				hf.note(winregValueNoteKey(w.value), r.err.Error())
+			}
+			hf.configChecks = append(hf.configChecks, regConfigCheck(ai.ExternalID, w, r))
+			if w.checkCode == checkCodeServerRequired {
+				serverRequired, haveServerRequired = r, true
+			}
 		}
-		hf.configChecks = append(hf.configChecks, regConfigCheck(ai.ExternalID, w, r))
+	}
+
+	// Combine the registry read with a LIVE SMB2 negotiate probe (WINAD-02): a
+	// modern client whose server-signing value is absent-by-default yet effectively
+	// requires signing must not be false-negatived. A probe failure degrades to the
+	// registry-only rows plus a per-check note (never-raises).
+	probe := probeSMB2(ctx, host)
+	if !probe.ok {
+		hf.note(noteKeySMB2, "negotiate_probe_unavailable")
+	}
+	// Emit the combined effective-signing row only when there is SOME signal
+	// (a registry server-signing result or a successful probe); with neither, the
+	// host simply carries the per-check notes (keeps a fully-degraded read from
+	// fabricating an "unknown" verdict row).
+	if haveServerRequired || probe.ok {
+		hf.configChecks = append(hf.configChecks,
+			effectiveSigningCheck(ai.ExternalID, serverRequired, haveServerRequired, probe))
 	}
 	return hf
 }

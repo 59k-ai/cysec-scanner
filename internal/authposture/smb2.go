@@ -9,6 +9,8 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cysec-watch/cysec-scanner/internal/payload"
@@ -159,9 +161,24 @@ func readFramedSMB2(conn net.Conn) ([]byte, error) {
 // is length-checked, there is no loop, and any malformed / truncated / non-negotiate
 // input collapses to an empty (ok=false) result — never an over-read or panic.
 func parseNegotiateResponse(msg []byte) smb2SigningProbe {
-	// RED stub: the bounded parse is implemented in the GREEN (feat) commit.
-	_ = msg
-	return smb2SigningProbe{}
+	// SecurityMode lives at NEGOTIATE-response body offset 2, i.e. absolute offset
+	// smb2HeaderLen+2. Require the full 2-byte field to be present.
+	const securityModeOffset = smb2HeaderLen + 2
+	if len(msg) < securityModeOffset+2 {
+		return smb2SigningProbe{}
+	}
+	if msg[0] != 0xFE || msg[1] != 'S' || msg[2] != 'M' || msg[3] != 'B' {
+		return smb2SigningProbe{}
+	}
+	if binary.LittleEndian.Uint16(msg[12:14]) != smb2NegotiateCommand {
+		return smb2SigningProbe{}
+	}
+	secMode := binary.LittleEndian.Uint16(msg[securityModeOffset : securityModeOffset+2])
+	return smb2SigningProbe{
+		ok:              true,
+		signingEnabled:  secMode&smb2SigningEnabled != 0,
+		signingRequired: secMode&smb2SigningRequired != 0,
+	}
 }
 
 // effectiveSigningCheck combines the Task-1 registry server-signing result with
@@ -172,12 +189,51 @@ func parseNegotiateResponse(msg []byte) smb2SigningProbe {
 // of an absent/0 registry value. Evidence from BOTH sources is recorded; the
 // scanner emits evidence only, never the compliance verdict.
 //
-// RED: this helper is defined but NOT yet wired into readWinreg (that wiring is
-// the GREEN commit); the combiner tests fail until then.
 func effectiveSigningCheck(externalID string, serverReq regResult, haveServerReq bool, probe smb2SigningProbe) payload.ConfigurationCheckItem {
-	_ = externalID
-	_ = serverReq
-	_ = haveServerReq
-	_ = probe
-	return payload.ConfigurationCheckItem{}
+	effective := effectiveUnknown
+	var evidence []string
+
+	// Registry signal (LanmanServer requiresecuritysignature). An ABSENT value is
+	// the OS default and is NOT treated as not-required (tri-state preserved); the
+	// probe resolves it below.
+	if haveServerReq {
+		switch serverReq.outcome {
+		case regPresent:
+			evidence = append(evidence, "registry_requiresecuritysignature="+strconv.FormatUint(uint64(serverReq.value), 10))
+			if serverReq.value != 0 {
+				effective = effectiveRequired
+			} else {
+				effective = effectiveNotRequired
+			}
+		case regAbsent:
+			evidence = append(evidence, "registry_requiresecuritysignature="+observedAbsent)
+		default:
+			evidence = append(evidence, "registry_requiresecuritysignature="+observedError)
+		}
+	}
+
+	// Live SMB2 negotiate probe. A probe reporting signing-required ALWAYS resolves
+	// the effective verdict to required — this is what prevents the registry-only
+	// false-negative on a modern client (absent-by-default yet required). When the
+	// probe reports not-required and the registry gave no definite "required", the
+	// effective verdict settles to not-required.
+	if probe.ok {
+		evidence = append(evidence,
+			"smb2_signing_required="+strconv.FormatBool(probe.signingRequired),
+			"smb2_signing_enabled="+strconv.FormatBool(probe.signingEnabled))
+		if probe.signingRequired {
+			effective = effectiveRequired
+		} else if effective != effectiveRequired {
+			effective = effectiveNotRequired
+		}
+	}
+
+	return payload.ConfigurationCheckItem{
+		AssetExternalID: externalID,
+		CheckCode:       checkCodeEffectiveSigning,
+		Title:           "Effective SMB signing (registry + live SMB2 negotiate)",
+		Status:          checkStatusCollected,
+		Severity:        severityInfo,
+		ObservedValue:   effective + " [" + strings.Join(evidence, ";") + "]",
+	}
 }
