@@ -1,0 +1,11 @@
+cysec\.watch
+cysec-watch
+cysec-collector
+cysecwatch
+pydantic
+django
+gitlab
+harbor\.
+devicehub
+hetzner
+__version__

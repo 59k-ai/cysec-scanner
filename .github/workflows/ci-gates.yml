@@ -124,3 +124,83 @@ jobs:
 
       - name: Out-of-module consumer test
         run: cd tests/consumer && go test ./...
+
+  # Gate 5 — leak-guard identifier denylist (LIB-04, threat T-9-09).
+  # Reddens if ANY private identifier (token list in
+  # .github/leak-guard-denylist.txt) appears in a scanned file — source, docs,
+  # config, workflows, or golden fixtures (D-10). The scan is case-insensitive
+  # over the whole tracked tree MINUS three exclusions that would otherwise make
+  # the gate self-invalidating or false-positive:
+  #   - data/oui and data/recog: embedded third-party vendor/fingerprint data
+  #     that legitimately contains common English words inside vendor street
+  #     addresses (e.g. a vendor whose address names a dock or waterfront); the
+  #     denylist anchors otherwise-common tokens to a hostname form to avoid
+  #     matching such words, and these trees are excluded as belt-and-suspenders.
+  #   - .github/leak-guard-denylist.txt itself: it necessarily contains every
+  #     token it searches for, so scanning it would always self-match.
+  # The legitimate public name `cysec-scanner` is NOT a denylist token and must
+  # never match. No failure-suppression: any real leak reddens the pipeline.
+  leak-guard:
+    name: leak-guard identifier denylist
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Grep tracked tree for private identifiers
+        run: |
+          FILES=$(git ls-files -- ':!data/oui' ':!data/recog' ':!.github/leak-guard-denylist.txt')
+          MATCH=$(printf '%s\n' "$FILES" | xargs grep -niE -f .github/leak-guard-denylist.txt 2>/dev/null || true)
+          if [ -n "$MATCH" ]; then
+            echo "leak-guard: private identifier found in a scanned file:"
+            printf '%s\n' "$MATCH"
+            exit 1
+          fi
+          echo "LEAKGUARD_CLEAN"
+
+  # Gate 6 — ENG-04 no-inbound-socket grep (LIB-04 / LIB-06, threat T-9-10).
+  # The read-only engine must open NO inbound/listening socket under any stage
+  # ordering. This greps every shipped non-test Go source (git ls-files '*.go'
+  # minus *_test.go and minus the out-of-module tests/consumer tree) for EVERY
+  # inbound-listener constructor form — net.Listen(/ListenTCP/ListenUDP/
+  # ListenPacket/ListenUnix/ListenMulticastUDP/FileListener/ListenConfig,
+  # icmp.ListenPacket, http.ListenAndServe, http.Serve( — NOT only TCP/HTTP, so
+  # a new inbound UDP/unix/packet/multicast listener cannot pass silently. It
+  # then SUBTRACTS an EXPLICIT file+construct allowlist of EXACTLY the two
+  # legitimate OUTBOUND client/probe sockets (exemption by enumeration, never by
+  # dropping a constructor from the pattern):
+  #   - icmp.ListenPacket in internal/capabilities/capabilities.go — the
+  #     unprivileged ICMP capability PROBE: an outbound datagram opened then
+  #     immediately closed, never an inbound server.
+  #   - net.ListenUDP in internal/netutil/mdns.go — the mDNS reverse-query
+  #     CLIENT datagram bound to an ephemeral Port: 0 (outbound), never a
+  #     listening service.
+  # Any listener-constructor hit NOT on that two-entry allowlist — or a second
+  # occurrence in a non-allowlisted file — reddens the job. No
+  # failure-suppression.
+  no-inbound-socket:
+    name: ENG-04 no-inbound-socket grep
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Assert no inbound listening socket outside the two-site allowlist
+        run: |
+          FILES=$(git ls-files '*.go' -- ':!*_test.go' ':!tests/consumer')
+          HITS=$(printf '%s\n' "$FILES" | xargs grep -nE 'net\.Listen\(|net\.ListenTCP|net\.ListenUDP|net\.ListenPacket|net\.ListenUnix|net\.ListenMulticastUDP|net\.FileListener|net\.ListenConfig|icmp\.ListenPacket|http\.ListenAndServe|http\.Serve\(' 2>/dev/null || true)
+          FILTERED=$(printf '%s\n' "$HITS" | grep -vE 'internal/capabilities/capabilities\.go:[0-9]+:.*icmp\.ListenPacket|internal/netutil/mdns\.go:[0-9]+:.*net\.ListenUDP' 2>/dev/null | grep -vE '^$' || true)
+          if [ -n "$FILTERED" ]; then
+            echo "ENG-04: inbound listener constructor outside the two-site allowlist:"
+            printf '%s\n' "$FILTERED"
+            exit 1
+          fi
+          echo "NO_INBOUND_SOCKET"
+
+      - name: Assert the two allowlisted client-socket sites still exist (non-vacuous)
+        run: |
+          FILES=$(git ls-files '*.go' -- ':!*_test.go')
+          HITS=$(printf '%s\n' "$FILES" | xargs grep -nE 'icmp\.ListenPacket|net\.ListenUDP' 2>/dev/null || true)
+          printf '%s\n' "$HITS" | grep -qE 'internal/capabilities/capabilities\.go:[0-9]+:.*icmp\.ListenPacket' || { echo "allowlisted icmp.ListenPacket site vanished"; exit 1; }
+          printf '%s\n' "$HITS" | grep -qE 'internal/netutil/mdns\.go:[0-9]+:.*net\.ListenUDP' || { echo "allowlisted net.ListenUDP site vanished"; exit 1; }
+          echo "ALLOWLIST_TARGETS_EXIST"
