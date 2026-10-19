@@ -425,6 +425,114 @@ func TestOSDBVersionRecorded(t *testing.T) {
 	}
 }
 
+// Corpus-grounded leadered greetings: each is a golden <example> from its
+// protocol's vendored database with the real status leader the port stage
+// captures prepended (FTP/SMTP "220 ", POP3 "+OK ", IMAP "* OK ") — never a
+// pre-stripped payload.
+const (
+	ftpLeaderedGreeting  = "220 foo.bar Microsoft FTP Service (Version 3.0)."
+	smtpLeaderedGreeting = "220 ArGoSoft Mail Server, Version 1.4 (1.4.0.7)"
+	pop3LeaderedGreeting = "+OK Lotus Notes POP3 server version Release 8.5.1FP5 ready on foo/US."
+	imapLeaderedGreeting = "* OK Microsoft Exchange 2000 IMAP4rev1 server version 6.0.6249.0 (foo.bar) ready."
+)
+
+// TestMatchServiceNormalizesLeaderedBanners proves matchService strips each
+// protocol's real greeting leader before the match: a full leadered greeting (the
+// shape the port stage emits) matches its database. ftp/smtp exercise the numeric
+// status-leader strip; pop3/imap exercise the token/untagged-response strip.
+func TestMatchServiceNormalizesLeaderedBanners(t *testing.T) {
+	t.Parallel()
+
+	corpus, err := recog.LoadCorpus(scannerdata.DataFS, recogDir)
+	if err != nil {
+		t.Fatalf("load corpus: %v", err)
+	}
+	cases := []struct {
+		name     string
+		port     int
+		greeting string
+	}{
+		{"ftp", 21, ftpLeaderedGreeting},
+		{"smtp", 25, smtpLeaderedGreeting},
+		{"pop3", 110, pop3LeaderedGreeting},
+		{"imap", 143, imapLeaderedGreeting},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if _, matched := matchService(corpus, tc.port, tc.greeting); !matched {
+				t.Errorf("%s: leadered greeting %q did not match after normalisation", tc.name, tc.greeting)
+			}
+		})
+	}
+}
+
+// TestFTPGreetingResolvesToV6 proves a real FTP greeting (with its 220 leader)
+// resolves end-to-end to recog-v1 with a product and cpe (ftp database preference
+// 0.90 >= cut). FTP resolves via the numeric-leader strip added for the tracer.
+func TestFTPGreetingResolvesToV6(t *testing.T) {
+	t.Parallel()
+	assertGreetingResolvesV6(t, 21, "ftp", ftpLeaderedGreeting)
+}
+
+// TestPOP3GreetingResolvesToV6 proves a real POP3 greeting (with its +OK leader)
+// resolves end-to-end to recog-v1 with a product and cpe (pop3 database 0.90).
+func TestPOP3GreetingResolvesToV6(t *testing.T) {
+	t.Parallel()
+	assertGreetingResolvesV6(t, 110, "pop3", pop3LeaderedGreeting)
+}
+
+// TestIMAPGreetingResolvesToV6 proves a real IMAP greeting (with its untagged
+// "* OK" leader) resolves end-to-end to recog-v1 with a product and cpe (imap
+// database 0.90).
+func TestIMAPGreetingResolvesToV6(t *testing.T) {
+	t.Parallel()
+	assertGreetingResolvesV6(t, 143, "imap", imapLeaderedGreeting)
+}
+
+// TestSMTPBelowCutRetained proves a real SMTP greeting matches after the leader
+// strip but is NOT promoted to recog-v1 (smtp database preference 0.20 < cut).
+func TestSMTPBelowCutRetained(t *testing.T) {
+	t.Parallel()
+
+	st := seedAsset(t, smtpLeaderedGreeting, payload.ServiceItem{
+		Port:        25,
+		Protocol:    "tcp",
+		ServiceName: "smtp",
+	})
+	pl := runStage(t, st)
+	svc := pl.Assets[0].Services[0]
+	if deref(svc.ServiceIdentitySource) == sourceRecogV1 {
+		t.Errorf("below-cut smtp match was promoted to %q; preference 0.20 < cut", sourceRecogV1)
+	}
+	assertStrictValidV6(t, pl)
+}
+
+// assertGreetingResolvesV6 drives a leadered greeting through fingerprint.Run on
+// the given port and asserts it promotes to recog-v1 with a non-nil product and
+// cpe, on a strict-valid v6 payload.
+func assertGreetingResolvesV6(t *testing.T, port int, serviceName, greeting string) {
+	t.Helper()
+	st := seedAsset(t, greeting, payload.ServiceItem{
+		Port:        port,
+		Protocol:    "tcp",
+		ServiceName: serviceName,
+	})
+	pl := runStage(t, st)
+	svc := pl.Assets[0].Services[0]
+	if got := deref(svc.ServiceIdentitySource); got != sourceRecogV1 {
+		t.Errorf("service_identity_source = %q, want %q", got, sourceRecogV1)
+	}
+	if svc.Product == nil {
+		t.Errorf("product nil; want non-nil")
+	}
+	if svc.CPE == nil {
+		t.Errorf("cpe nil; want non-nil")
+	}
+	assertStrictValidV6(t, pl)
+}
+
 // --- helpers ---
 
 // maxParamBytesForTest mirrors the matcher's length cap for the never-raises
