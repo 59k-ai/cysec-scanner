@@ -54,7 +54,7 @@ jobs:
 
       # Open a reviewable pin-bump PR only when the snapshot actually changed.
       # Pinning this action by commit SHA is recommended before the first LIVE
-      # run under the cysec-watch org (Phase 8); a major-version tag is used here
+      # run under the public org (Phase 8); a major-version tag is used here
       # to match the existing governance.yml action-pinning idiom.
       - name: Open pin-bump pull request
         if: steps.fetch.outputs.changed == 'true'

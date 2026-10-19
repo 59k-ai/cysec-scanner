@@ -1,8 +1,8 @@
 cysec-scanner
 Copyright 2026 59k GmbH
 
-This product includes software developed as part of the cysec.watch
-open-source network scanner engine.
+This product includes software developed as part of the cysec-scanner
+open-source network scanner engine project.
 
 This software is licensed under the Apache License, Version 2.0 (see the
 LICENSE file in this repository).

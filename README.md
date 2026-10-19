@@ -1,9 +1,9 @@
 # cysec-scanner
 
 A pure-Go, cross-platform, open-source network scanner engine that discovers the
-network and reads service/OS and Windows/AD posture, emitting the cysec.watch
-Collector payload. Published under the Apache License 2.0 as the auditable engine
-behind a thin closed Collector wrapper.
+network and reads service/OS and Windows/AD posture, emitting a structured
+network-evidence payload consumed by a compatible collector. Published under the
+Apache License 2.0 as the auditable engine behind a thin closed collector wrapper.
 
 ## License
 
