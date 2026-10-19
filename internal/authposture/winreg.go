@@ -160,11 +160,37 @@ func regConfigCheck(externalID string, w winregValue, r regResult) payload.Confi
 // stage still ships a complete payload. The live SMB2 negotiate probe + combiner
 // (smb2.go) are folded in here by Task 2.
 func readWinreg(ctx context.Context, ai payload.AssetItem, cred scanCredential) hostFacts {
-	// RED stub: the registry mapping is wired in the GREEN (feat) commit.
-	_ = ctx
-	_ = ai
-	_ = cred
-	return newHostFacts()
+	hf := newHostFacts()
+	host := targetHost(ai)
+	if host == "" {
+		hf.note(noteKeyWinreg, "no_address")
+		return hf
+	}
+	// The single read-only scan account (D-05) is registered once per process over
+	// the shared go-msrpc gssapi store; winreg reuses the WMI registration.
+	registerWMICredential(cred)
+
+	sess, err := openWinregSession(ctx, host)
+	if err != nil {
+		// Whole-session failure (dial/seal/HKLM open) is a per-check note, not a
+		// stage error, and adds NO registry rows (never-raises).
+		hf.note(noteKeyWinreg, "session: "+err.Error())
+		return hf
+	}
+	defer sess.close()
+
+	// Read each value independently: a per-value failure lands a per-check note and
+	// observes "error" while the other values still map. The tri-state (present /
+	// present-0 / absent) survives onto each row's ObservedValue; absent is NEVER
+	// coerced to 0.
+	for _, w := range winregValues {
+		r := sess.queryDword(ctx, w.subkey, w.value)
+		if r.outcome == regError && r.err != nil {
+			hf.note(winregValueNoteKey(w.value), r.err.Error())
+		}
+		hf.configChecks = append(hf.configChecks, regConfigCheck(ai.ExternalID, w, r))
+	}
+	return hf
 }
 
 // openLiveWinregSession dials the host's SMB named-pipe winreg endpoint
