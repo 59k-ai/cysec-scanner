@@ -53,7 +53,7 @@ const (
 
 // bindOrder is the LDAPS-preferred, patched-GSSAPI-fallback priority (D-01).
 // readAD attempts each in order and stops at the first that binds.
-var bindOrder = []bindMethod{} // GREEN (Task 1) sets [ldaps, gssapi]
+var bindOrder = []bindMethod{bindLDAPS, bindGSSAPI}
 
 const (
 	noteKeyLDAP      = "authposture_ldap"
@@ -202,12 +202,47 @@ type gssWrapper interface {
 	Wrap(payload []byte, confidential bool) ([]byte, error)
 }
 
-// negotiateSaslAuthSigned is the patched final SASL step. GREEN (Task 1) fills it.
+// negotiateSaslAuthSigned is the patched final SASL step (RFC 4752 §3.1). The
+// server token, once UNWRAPPED, is a 4-byte field: the offered security layers
+// (first octet) + max receive buffer (next three). THE PATCH (D-01, the spike-002
+// PARTIAL break): select a SIGNED/SEALED security layer and WRAP the response —
+// stock go-ldap hard-codes "no security layer" and sends the final token in the
+// clear, which a signing-enforced WS2025 DC rejects ("Strong Auth Required" /
+// data 57 SEC_E_INVALID_TOKEN). If the server offers only "no security layer",
+// this refuses the bind rather than silently downgrading.
 func negotiateSaslAuthSigned(w gssWrapper, serverToken []byte, authzid string) ([]byte, error) {
-	_ = w
-	_ = serverToken
-	_ = authzid
-	return nil, nil
+	caps, err := w.Unwrap(serverToken)
+	if err != nil {
+		return nil, fmt.Errorf("unwrap server sasl token: %w", err)
+	}
+	if len(caps) < 4 {
+		return nil, fmt.Errorf("sasl server token too short: %d bytes", len(caps))
+	}
+	offered := caps[0]
+
+	var chosen byte
+	var confidential bool
+	switch {
+	case offered&saslLayerConf != 0:
+		chosen, confidential = saslLayerConf, true
+	case offered&saslLayerIntegrity != 0:
+		chosen, confidential = saslLayerIntegrity, false
+	default:
+		return nil, fmt.Errorf("server offers no integrity/confidentiality SASL layer (0x%02x); refusing unsigned bind", offered)
+	}
+
+	// Client response: chosen layer (1 octet) + echoed max receive buffer
+	// (3 octets) + optional authorization identity. This payload MUST be signed.
+	resp := make([]byte, 4, 4+len(authzid))
+	resp[0] = chosen
+	copy(resp[1:4], caps[1:4])
+	resp = append(resp, []byte(authzid)...)
+
+	signed, err := w.Wrap(resp, confidential)
+	if err != nil {
+		return nil, fmt.Errorf("sign final sasl token: %w", err)
+	}
+	return signed, nil
 }
 
 // signedGSSAPIClient implements go-ldap's pluggable GSSAPIClient interface with a
