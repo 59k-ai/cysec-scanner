@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	scannerdata "github.com/cysec-watch/cysec-scanner"
+	scannerdata "github.com/59k-ai/cysec-scanner"
 )
 
 // noticesPath is the repo-root THIRD_PARTY_NOTICES.md relative to this test

@@ -29,7 +29,7 @@ import (
 	"strings"
 	"sync"
 
-	scannerdata "github.com/cysec-watch/cysec-scanner"
+	scannerdata "github.com/59k-ai/cysec-scanner"
 )
 
 // Embedded CSV paths for the three IEEE registry blocks. Each file shares the

@@ -17,7 +17,7 @@ import (
 
 	winreg "github.com/oiweiwei/go-msrpc/msrpc/rrp/winreg/v1"
 
-	"github.com/cysec-watch/cysec-scanner/internal/payload"
+	"github.com/59k-ai/cysec-scanner/internal/payload"
 )
 
 // winreg.go is the remote-registry-over-SMB reader (the 06-01 readWinreg seam).

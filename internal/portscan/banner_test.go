@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cysec-watch/cysec-scanner/internal/capabilities"
-	"github.com/cysec-watch/cysec-scanner/internal/scanstate"
+	"github.com/59k-ai/cysec-scanner/internal/capabilities"
+	"github.com/59k-ai/cysec-scanner/internal/scanstate"
 )
 
 // startTCPServer starts a loopback TCP listener whose accepted connections are

@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cysec-watch/cysec-scanner/internal/capabilities"
-	"github.com/cysec-watch/cysec-scanner/internal/netutil"
-	"github.com/cysec-watch/cysec-scanner/internal/scanstate"
+	"github.com/59k-ai/cysec-scanner/internal/capabilities"
+	"github.com/59k-ai/cysec-scanner/internal/netutil"
+	"github.com/59k-ai/cysec-scanner/internal/scanstate"
 )
 
 // TestMain defaults the hostname-resolver seams to no-ops so Run-based tests do

@@ -26,13 +26,13 @@ import (
 	"regexp"
 	"strings"
 
-	scannerdata "github.com/cysec-watch/cysec-scanner"
-	"github.com/cysec-watch/cysec-scanner/internal/capabilities"
-	"github.com/cysec-watch/cysec-scanner/internal/fingerprint/osfp"
-	"github.com/cysec-watch/cysec-scanner/internal/fingerprint/recog"
-	"github.com/cysec-watch/cysec-scanner/internal/governance"
-	"github.com/cysec-watch/cysec-scanner/internal/payload"
-	"github.com/cysec-watch/cysec-scanner/internal/scanstate"
+	scannerdata "github.com/59k-ai/cysec-scanner"
+	"github.com/59k-ai/cysec-scanner/internal/capabilities"
+	"github.com/59k-ai/cysec-scanner/internal/fingerprint/osfp"
+	"github.com/59k-ai/cysec-scanner/internal/fingerprint/recog"
+	"github.com/59k-ai/cysec-scanner/internal/governance"
+	"github.com/59k-ai/cysec-scanner/internal/payload"
+	"github.com/59k-ai/cysec-scanner/internal/scanstate"
 )
 
 // sourceRecogV1 is the provenance label this stage stamps on a service identity

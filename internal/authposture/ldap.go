@@ -23,7 +23,7 @@ import (
 	"github.com/jcmturner/gokrb5/v8/spnego"
 	"github.com/jcmturner/gokrb5/v8/types"
 
-	"github.com/cysec-watch/cysec-scanner/internal/payload"
+	"github.com/59k-ai/cysec-scanner/internal/payload"
 )
 
 // ldap.go is the signed-LDAP / Active Directory reader (the 06-01 readAD seam).

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cysec-watch/cysec-scanner/internal/capabilities"
+	"github.com/59k-ai/cysec-scanner/internal/capabilities"
 )
 
 // ifAddr builds a *net.IPNet shaped like an interface address (IP = the host's

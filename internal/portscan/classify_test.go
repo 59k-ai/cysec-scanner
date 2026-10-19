@@ -7,8 +7,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/cysec-watch/cysec-scanner/internal/payload"
-	"github.com/cysec-watch/cysec-scanner/internal/scanstate"
+	"github.com/59k-ai/cysec-scanner/internal/payload"
+	"github.com/59k-ai/cysec-scanner/internal/scanstate"
 )
 
 // validAssetTypes is the closed asset_type enum the cloud ingest accepts; every

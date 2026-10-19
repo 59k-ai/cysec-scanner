@@ -23,8 +23,8 @@ import (
 	"os"
 	"path/filepath"
 
-	scannerdata "github.com/cysec-watch/cysec-scanner"
-	"github.com/cysec-watch/cysec-scanner/internal/governance"
+	scannerdata "github.com/59k-ai/cysec-scanner"
+	"github.com/59k-ai/cysec-scanner/internal/governance"
 )
 
 func main() {

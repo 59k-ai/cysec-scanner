@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cysec-watch/cysec-scanner/internal/capabilities"
-	"github.com/cysec-watch/cysec-scanner/internal/payload"
-	"github.com/cysec-watch/cysec-scanner/internal/scanstate"
+	"github.com/59k-ai/cysec-scanner/internal/capabilities"
+	"github.com/59k-ai/cysec-scanner/internal/payload"
+	"github.com/59k-ai/cysec-scanner/internal/scanstate"
 )
 
 // seedGatedWindows adds one gated Windows host (confident os_guess) with a

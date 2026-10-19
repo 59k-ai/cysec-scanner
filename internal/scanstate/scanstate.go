@@ -18,7 +18,7 @@ package scanstate
 import (
 	"sync"
 
-	"github.com/cysec-watch/cysec-scanner/internal/payload"
+	"github.com/59k-ai/cysec-scanner/internal/payload"
 )
 
 // ScanState is the shared, thread-safe accumulator for the in-progress payload.

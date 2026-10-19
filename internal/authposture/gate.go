@@ -3,7 +3,7 @@
 
 package authposture
 
-import "github.com/cysec-watch/cysec-scanner/internal/payload"
+import "github.com/59k-ai/cysec-scanner/internal/payload"
 
 // defaultAuthWorkers is the default size of the bounded per-host read pool. It
 // sits inside the sanctioned [4,8] range (WINAD-04); the exact value within that

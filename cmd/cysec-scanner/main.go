@@ -27,15 +27,15 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/cysec-watch/cysec-scanner/internal/authposture"
-	"github.com/cysec-watch/cysec-scanner/internal/capabilities"
-	"github.com/cysec-watch/cysec-scanner/internal/discovery"
-	"github.com/cysec-watch/cysec-scanner/internal/fingerprint"
-	"github.com/cysec-watch/cysec-scanner/internal/payload"
-	"github.com/cysec-watch/cysec-scanner/internal/pipeline"
-	"github.com/cysec-watch/cysec-scanner/internal/portscan"
-	"github.com/cysec-watch/cysec-scanner/internal/progress"
-	"github.com/cysec-watch/cysec-scanner/internal/scanstate"
+	"github.com/59k-ai/cysec-scanner/internal/authposture"
+	"github.com/59k-ai/cysec-scanner/internal/capabilities"
+	"github.com/59k-ai/cysec-scanner/internal/discovery"
+	"github.com/59k-ai/cysec-scanner/internal/fingerprint"
+	"github.com/59k-ai/cysec-scanner/internal/payload"
+	"github.com/59k-ai/cysec-scanner/internal/pipeline"
+	"github.com/59k-ai/cysec-scanner/internal/portscan"
+	"github.com/59k-ai/cysec-scanner/internal/progress"
+	"github.com/59k-ai/cysec-scanner/internal/scanstate"
 )
 
 // collectorVersion stamps the payload's collector_version field for this engine.

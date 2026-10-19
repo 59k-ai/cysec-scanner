@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	scannerdata "github.com/cysec-watch/cysec-scanner"
-	"github.com/cysec-watch/cysec-scanner/internal/capabilities"
-	"github.com/cysec-watch/cysec-scanner/internal/fingerprint/osfp"
-	"github.com/cysec-watch/cysec-scanner/internal/fingerprint/recog"
-	"github.com/cysec-watch/cysec-scanner/internal/payload"
-	"github.com/cysec-watch/cysec-scanner/internal/scanstate"
+	scannerdata "github.com/59k-ai/cysec-scanner"
+	"github.com/59k-ai/cysec-scanner/internal/capabilities"
+	"github.com/59k-ai/cysec-scanner/internal/fingerprint/osfp"
+	"github.com/59k-ai/cysec-scanner/internal/fingerprint/recog"
+	"github.com/59k-ai/cysec-scanner/internal/payload"
+	"github.com/59k-ai/cysec-scanner/internal/scanstate"
 )
 
 // fakeIdentity builds a synthetic match result so the precedence gate can be

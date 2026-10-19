@@ -36,9 +36,9 @@ import (
 	"context"
 	"sync"
 
-	"github.com/cysec-watch/cysec-scanner/internal/capabilities"
-	"github.com/cysec-watch/cysec-scanner/internal/payload"
-	"github.com/cysec-watch/cysec-scanner/internal/scanstate"
+	"github.com/59k-ai/cysec-scanner/internal/capabilities"
+	"github.com/59k-ai/cysec-scanner/internal/payload"
+	"github.com/59k-ai/cysec-scanner/internal/scanstate"
 )
 
 // DefaultWorkers is the exported default bounded-pool size for callers (main.go

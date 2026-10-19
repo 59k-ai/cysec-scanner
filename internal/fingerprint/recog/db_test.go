@@ -8,7 +8,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	scannerdata "github.com/cysec-watch/cysec-scanner"
+	scannerdata "github.com/59k-ai/cysec-scanner"
 )
 
 const sshDBPath = "data/recog/ssh_banners.xml"

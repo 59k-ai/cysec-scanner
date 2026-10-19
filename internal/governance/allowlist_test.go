@@ -9,7 +9,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	scannerdata "github.com/cysec-watch/cysec-scanner"
+	scannerdata "github.com/59k-ai/cysec-scanner"
 )
 
 // TestAllowlistIntegrity is the LIC-03 gate against the REAL shipped embed.FS:

@@ -36,7 +36,7 @@ import (
 	_ "github.com/oiweiwei/go-msrpc/msrpc/erref/win32"
 	_ "github.com/oiweiwei/go-msrpc/msrpc/erref/wmi"
 
-	"github.com/cysec-watch/cysec-scanner/internal/payload"
+	"github.com/59k-ai/cysec-scanner/internal/payload"
 )
 
 // wmiReaderFunc is the injectable WMI reader seam. Tests swap it for a fake that

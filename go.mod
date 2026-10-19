@@ -1,4 +1,4 @@
-module github.com/cysec-watch/cysec-scanner
+module github.com/59k-ai/cysec-scanner
 
 go 1.22
 

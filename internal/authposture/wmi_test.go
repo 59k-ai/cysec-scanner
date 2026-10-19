@@ -11,9 +11,9 @@ import (
 
 	"github.com/oiweiwei/go-msrpc/msrpc/dcom/wmio"
 
-	"github.com/cysec-watch/cysec-scanner/internal/capabilities"
-	"github.com/cysec-watch/cysec-scanner/internal/payload"
-	"github.com/cysec-watch/cysec-scanner/internal/scanstate"
+	"github.com/59k-ai/cysec-scanner/internal/capabilities"
+	"github.com/59k-ai/cysec-scanner/internal/payload"
+	"github.com/59k-ai/cysec-scanner/internal/scanstate"
 )
 
 // fakeWMISession is an in-memory wmiSession for Linux CI: it returns canned rows

@@ -9,7 +9,7 @@ import (
 	"io"
 	"testing"
 
-	scannerdata "github.com/cysec-watch/cysec-scanner"
+	scannerdata "github.com/59k-ai/cysec-scanner"
 )
 
 // ouiRegistryPrefix maps each IEEE registry block to its MAC-prefix length in

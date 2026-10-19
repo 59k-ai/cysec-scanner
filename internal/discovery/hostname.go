@@ -8,7 +8,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/cysec-watch/cysec-scanner/internal/netutil"
+	"github.com/59k-ai/cysec-scanner/internal/netutil"
 )
 
 // Hostname resolvers, exposed as injectable seams so the enrichment can be proven

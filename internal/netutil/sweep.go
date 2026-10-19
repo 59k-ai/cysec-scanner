@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cysec-watch/cysec-scanner/internal/capabilities"
+	"github.com/59k-ai/cysec-scanner/internal/capabilities"
 )
 
 const (

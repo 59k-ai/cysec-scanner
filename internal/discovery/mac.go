@@ -7,7 +7,7 @@ import (
 	"net/netip"
 	"sort"
 
-	"github.com/cysec-watch/cysec-scanner/internal/oui"
+	"github.com/59k-ai/cysec-scanner/internal/oui"
 )
 
 // DISC-03 Layer-2 segment wire encoding. These literals are the single source of
