@@ -117,6 +117,51 @@ func TestDBVersionRecorded(t *testing.T) {
 	}
 }
 
+// TestBackfillPhase4Provenance proves the backfill stamps a retained light-parse
+// value with its paired provenance, leaves a promoted value untouched, and never
+// invents provenance for a value-less service.
+func TestBackfillPhase4Provenance(t *testing.T) {
+	t.Parallel()
+
+	t.Run("retained value stamped", func(t *testing.T) {
+		t.Parallel()
+		s := &payload.ServiceItem{Port: 80, Product: strptr("Zarniwoop-HTTPd/0.0")}
+		backfillPhase4Provenance(s)
+		if deref(s.ServiceIdentitySource) != sourcePortBannerV1 {
+			t.Errorf("source = %q, want %q", deref(s.ServiceIdentitySource), sourcePortBannerV1)
+		}
+		if s.ServiceIdentityConfidence == nil || *s.ServiceIdentityConfidence != confidencePortBannerV1 {
+			t.Errorf("confidence = %v, want %v", s.ServiceIdentityConfidence, confidencePortBannerV1)
+		}
+		if deref(s.Product) != "Zarniwoop-HTTPd/0.0" {
+			t.Errorf("backfill mutated the product: %q", deref(s.Product))
+		}
+	})
+
+	t.Run("promoted value untouched", func(t *testing.T) {
+		t.Parallel()
+		// Reach the already-promoted state through the real promotion path rather
+		// than seeding a wire source by hand.
+		s := &payload.ServiceItem{Port: 22, Product: strptr("Phase4SSH")}
+		if !applyServiceIdentity(s, fakeIdentity("OpenSSH", "9.6", 0.9), confidenceCut) {
+			t.Fatal("precondition: match was not promoted")
+		}
+		backfillPhase4Provenance(s)
+		if deref(s.ServiceIdentitySource) != sourceRecogV1 || *s.ServiceIdentityConfidence != 0.9 {
+			t.Errorf("backfill overwrote a promoted value: %+v", s)
+		}
+	})
+
+	t.Run("no value untouched", func(t *testing.T) {
+		t.Parallel()
+		s := &payload.ServiceItem{Port: 23}
+		backfillPhase4Provenance(s)
+		if s.ServiceIdentitySource != nil || s.ServiceIdentityConfidence != nil {
+			t.Errorf("backfill invented provenance for a value-less service: %+v", s)
+		}
+	})
+}
+
 // TestRetainedPhase4ValueCarriesProvenance proves a retained light-parse value
 // (the database did not promote) keeps its value AND gains its paired provenance
 // on the wire: a full HTTP response block whose Server value the http database

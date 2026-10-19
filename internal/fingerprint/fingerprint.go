@@ -44,6 +44,19 @@ const sourceRecogV1 = "recog-v1"
 // identity is suppressed rather than shown as a weak claim (FPRINT-03, D-07).
 const confidenceCut = 0.5
 
+// sourcePortBannerV1 is the provenance label for a retained light-parse
+// product/version value the service-fingerprint database did NOT promote. The
+// port stage's light parse is the only stage that sets product/version without a
+// wire source, so a retained (un-promoted) value is a port-banner-v1 value.
+const sourcePortBannerV1 = "port-banner-v1"
+
+// confidencePortBannerV1 is the below-cut numeric confidence stamped on a retained
+// light-parse value — the honest worth of a light parse (the same "low" magnitude
+// the port stage records on its evidence map, below the prefer-unknown cut). It
+// pairs the retained value with a source + confidence on the wire (FPRINT-03)
+// without ever promoting it to authoritative (D-07).
+const confidencePortBannerV1 = 0.3
+
 // sshDBPath is one embedded, governed service-fingerprint database file. It is
 // the allowlist entry this stage reads the shared pinned DB version from (every
 // vendored Recog file shares one upstream snapshot — FPRINT-04).
@@ -146,21 +159,29 @@ func Run(ctx context.Context, st *scanstate.ScanState, caps capabilities.Capabil
 			// matched fingerprint carries to feed the OS engine.
 			bannerOSCue := ""
 			for i := range ai.Services {
-				banner, ok := banners[ai.Services[i].Port]
-				if !ok || banner == "" {
-					continue
+				// Every non-promoted service must still reach the provenance backfill
+				// below, so the no-banner and Recog-miss paths fall through rather than
+				// short-circuit early — a below-cut or missing match leaves the
+				// light-parse value in place and the tail backfill pairs it with its
+				// source + confidence on the wire.
+				promoted := false
+				if banner, ok := banners[ai.Services[i].Port]; ok && banner != "" {
+					if id, matched := matchService(corpus, ai.Services[i].Port, banner); matched {
+						// Only an at/above-cut match may contribute its OS family: a
+						// below-cut service match (e.g. a low-preference mail-greeting
+						// database) must not amplify its OS family past the prefer-unknown
+						// cut into an os_guess.
+						if bannerOSCue == "" && id.OSFamily != "" && id.Confidence >= confidenceCut {
+							bannerOSCue = id.OSFamily
+						}
+						promoted = applyServiceIdentity(&ai.Services[i], id, confidenceCut)
+					}
 				}
-				id, matched := matchService(corpus, ai.Services[i].Port, banner)
-				if !matched {
-					continue
+				if !promoted {
+					// Miss, below-cut, or no banner: a retained light-parse value keeps
+					// its value (never nulled, D-11) and gains its paired provenance.
+					backfillPhase4Provenance(&ai.Services[i])
 				}
-				// Only an at/above-cut match may contribute its OS family: a below-cut
-				// service match (e.g. a low-preference mail-greeting database) must not
-				// amplify its OS family past the prefer-unknown cut into an os_guess.
-				if bannerOSCue == "" && id.OSFamily != "" && id.Confidence >= confidenceCut {
-					bannerOSCue = id.OSFamily
-				}
-				applyServiceIdentity(&ai.Services[i], id, confidenceCut)
 			}
 
 			// OS guess: score the self-authored signatures against the unprivileged
@@ -349,6 +370,25 @@ func applyServiceIdentity(s *payload.ServiceItem, id recog.Identity, cut float64
 	s.ServiceIdentitySource = &source
 	s.ServiceIdentityConfidence = &confidence
 	return true
+}
+
+// backfillPhase4Provenance pairs a retained light-parse value with its provenance
+// on the wire: when a service carries a product or version but no wire-level
+// source (the shape the port stage's light parse leaves — it records provenance
+// only on the classification evidence map), it stamps source=port-banner-v1 and a
+// below-cut numeric confidence. The value itself is never touched, so a miss never
+// nulls a good value (D-11) and the wire never carries a product/version without
+// its paired source + confidence (FPRINT-03). A service already carrying a wire
+// source (a promoted recog-v1 match), or one with no product/version at all, is
+// left untouched. The stamped identity is evidence only (D-15).
+func backfillPhase4Provenance(s *payload.ServiceItem) {
+	if s == nil || (s.Product == nil && s.ServiceVersion == nil) || s.ServiceIdentitySource != nil {
+		return
+	}
+	source := sourcePortBannerV1
+	confidence := confidencePortBannerV1
+	s.ServiceIdentitySource = &source
+	s.ServiceIdentityConfidence = &confidence
 }
 
 // optional returns a pointer to s, or nil when s is empty — so an absent value
