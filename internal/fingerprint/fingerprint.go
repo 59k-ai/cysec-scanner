@@ -98,6 +98,21 @@ type Options struct {
 // fingerprint database matches against.
 var sshIdentRe = regexp.MustCompile(`^SSH-\d+\.\d+-(.*)$`)
 
+// httpServerRe captures the value of the first Server header in a full HTTP
+// response block (status line + header lines), matched line-by-line in
+// case-insensitive multiline mode. The service-fingerprint database for http
+// matches the Server value, not the whole response block, so the value must be
+// extracted before the match. RE2 (linear-time) only — the response block is
+// untrusted but already byte-capped and control-char-stripped upstream (D-14).
+var httpServerRe = regexp.MustCompile(`(?im)^Server:\s*(.+)$`)
+
+// numericStatusLeaderRe matches the 3-digit status leader a line-oriented text
+// protocol prepends to its greeting (e.g. the FTP/SMTP "220 " ready line, or the
+// SMTP "220-" multiline-continuation form). The fingerprint databases match the
+// payload after the leader, so the "NNN[ -]" prefix is stripped before the match.
+// RE2 only, anchored at the start — linear-time on the already-bounded banner.
+var numericStatusLeaderRe = regexp.MustCompile(`^\d{3}[ -]`)
+
 // Run executes the fingerprint stage over the accumulator's assets. It returns
 // nil on any degraded condition (no assets, database load failure, cancellation)
 // so a fully-degraded run still yields a complete, strict-valid payload.
@@ -139,7 +154,10 @@ func Run(ctx context.Context, st *scanstate.ScanState, caps capabilities.Capabil
 				if !matched {
 					continue
 				}
-				if bannerOSCue == "" && id.OSFamily != "" {
+				// Only an at/above-cut match may contribute its OS family: a below-cut
+				// service match (e.g. a low-preference mail-greeting database) must not
+				// amplify its OS family past the prefer-unknown cut into an os_guess.
+				if bannerOSCue == "" && id.OSFamily != "" && id.Confidence >= confidenceCut {
 					bannerOSCue = id.OSFamily
 				}
 				applyServiceIdentity(&ai.Services[i], id, confidenceCut)
@@ -167,10 +185,11 @@ func Run(ctx context.Context, st *scanstate.ScanState, caps capabilities.Capabil
 }
 
 // matchService routes a captured banner to the Recog database for the port's
-// protocol and returns the match. SSH identification strings are matched on their
-// software-and-comment portion (the SSH DB patterns expect the prefix stripped);
-// every other protocol matches the raw banner. An unrouted port, an empty
-// comment, or an absent protocol database is a clean miss.
+// protocol and returns the match. The raw banner the port stage captures is the
+// wire greeting (a full HTTP response block, or a leadered line-protocol
+// greeting), but each fingerprint database matches the normalised PAYLOAD; so the
+// banner is run through normalizeBanner for its protocol first. An unrouted port,
+// an absent protocol database, or an empty normalised result is a clean miss.
 func matchService(corpus *recog.Corpus, port int, banner string) (recog.Identity, bool) {
 	proto := recogProtocolByPort[port]
 	if proto == "" {
@@ -180,14 +199,53 @@ func matchService(corpus *recog.Corpus, port int, banner string) (recog.Identity
 	if db == nil {
 		return recog.Identity{}, false
 	}
-	if proto == "ssh" {
-		comment := sshComment(banner)
-		if comment == "" {
-			return recog.Identity{}, false
-		}
-		return db.Match(comment)
+	norm := normalizeBanner(proto, banner)
+	if norm == "" {
+		return recog.Identity{}, false
 	}
-	return db.Match(banner)
+	return db.Match(norm)
+}
+
+// normalizeBanner maps a raw wire banner to the payload the fingerprint database
+// for proto matches against. Each protocol greets with its own envelope: ssh
+// sends an identification string, http returns a full response block whose Server
+// header carries the product, and the line-oriented mail/transfer protocols
+// prepend a status leader to their greeting. An unlisted protocol (telnet and the
+// default) matches the raw banner unchanged — those databases match the bare
+// greeting. An empty result is a clean miss (handled by matchService).
+func normalizeBanner(proto, banner string) string {
+	switch proto {
+	case "ssh":
+		return sshComment(banner)
+	case "http":
+		return httpServerHeader(banner)
+	case "ftp", "smtp":
+		return stripNumericStatusLeader(banner)
+	default:
+		// telnet and any unlisted protocol match the bare greeting (no leader).
+		return banner
+	}
+}
+
+// httpServerHeader returns the trimmed value of the first Server header in a full
+// HTTP response block, or "" when the block carries no Server header.
+func httpServerHeader(banner string) string {
+	m := httpServerRe.FindStringSubmatch(banner)
+	if m == nil {
+		return ""
+	}
+	return strings.TrimSpace(m[1])
+}
+
+// stripNumericStatusLeader removes a leading 3-digit status code and its trailing
+// space or hyphen (e.g. "220 " or the multiline "220-") from a line-protocol
+// greeting, returning the payload the fingerprint database matches. A banner with
+// no such leader is returned unchanged.
+func stripNumericStatusLeader(banner string) string {
+	if numericStatusLeaderRe.MatchString(banner) {
+		return banner[4:]
+	}
+	return banner
 }
 
 // applyOSGuess builds an Observation from the asset's unprivileged evidence (the
