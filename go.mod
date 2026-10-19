@@ -3,6 +3,8 @@ module github.com/cysec-watch/cysec-scanner
 go 1.22
 
 require (
+	github.com/go-ldap/ldap/v3 v3.4.10
+	github.com/jcmturner/gokrb5/v8 v8.4.4
 	github.com/oiweiwei/go-msrpc v1.1.5
 	github.com/prometheus-community/pro-bing v0.6.1
 	github.com/rs/zerolog v1.32.0
@@ -11,7 +13,9 @@ require (
 )
 
 require (
+	github.com/Azure/go-ntlmssp v0.0.0-20221128193559-754e69321358 // indirect
 	github.com/geoffgarside/ber v1.1.0 // indirect
+	github.com/go-asn1-ber/asn1-ber v1.5.7 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
 	github.com/hirochachacha/go-smb2 v1.1.0 // indirect
@@ -20,7 +24,6 @@ require (
 	github.com/jcmturner/dnsutils/v2 v2.0.0 // indirect
 	github.com/jcmturner/gofork v1.7.6 // indirect
 	github.com/jcmturner/goidentity/v6 v6.0.1 // indirect
-	github.com/jcmturner/gokrb5/v8 v8.4.4 // indirect
 	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect
