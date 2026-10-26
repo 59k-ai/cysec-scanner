@@ -1,0 +1,9 @@
+authposture
+oiweiwei/go-msrpc
+go-ldap/ldap
+gokrb5
+winreg
+Win32_
+iwbem
+WMI
+SMB2

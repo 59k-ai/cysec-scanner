@@ -204,3 +204,73 @@ jobs:
           printf '%s\n' "$HITS" | grep -qE 'internal/capabilities/capabilities\.go:[0-9]+:.*icmp\.ListenPacket' || { echo "allowlisted icmp.ListenPacket site vanished"; exit 1; }
           printf '%s\n' "$HITS" | grep -qE 'internal/netutil/mdns\.go:[0-9]+:.*net\.ListenUDP' || { echo "allowlisted net.ListenUDP site vanished"; exit 1; }
           echo "ALLOWLIST_TARGETS_EXIST"
+
+  # Gate 7 — APOST-01 relocated-code residue grep (threat T-10-11).
+  # Authenticated posture checks are not part of this open engine. This gate is
+  # DISTINCT from leak-guard: leak-guard stops private identifiers leaking IN;
+  # this one proves no relocated authenticated-posture code, and none of the
+  # remote-management / directory / Kerberos dependency names it pulled in,
+  # survives in the public tree. The token list lives in
+  # .github/apost-01-tokens.txt (one case-insensitive pattern per line) so this
+  # workflow file carries no literal token. It scans every tracked Go source
+  # plus every go.mod / go.sum (a stale go.sum line counts as residue), minus
+  # data/recog and data/oui: embedded third-party fingerprint/vendor data whose
+  # unrelated English/vendor strings are not engine code. Deletion is physical,
+  # never a build tag or dead-code guard, so any hit reddens the pipeline. No
+  # failure-suppression.
+  apost-01:
+    name: APOST-01 relocated-code residue grep
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Assert zero relocated-code tokens in tracked Go sources and module files
+        run: |
+          TOKENS=.github/apost-01-tokens.txt
+          test -s "$TOKENS" || { echo "APOST-01 token list missing or empty"; exit 1; }
+          git ls-files --error-unmatch go.mod go.sum >/dev/null || { echo "go.mod/go.sum not tracked; scan would be vacuous"; exit 1; }
+          set +e
+          MATCH=$(git grep -niE -f "$TOKENS" -- '*.go' 'go.mod' 'go.sum' '*/go.mod' '*/go.sum' ':!data/recog' ':!data/oui')
+          RC=$?
+          set -e
+          if [ "$RC" -eq 0 ]; then
+            echo "APOST-01: relocated-code residue found in the public tree:"
+            printf '%s\n' "$MATCH"
+            exit 1
+          fi
+          if [ "$RC" -ne 1 ]; then
+            echo "APOST-01: git grep failed (exit $RC)"
+            exit 1
+          fi
+          echo "APOST01_CLEAN"
+
+  # Gate 8 — module-graph tidy-clean assertion (APOST-01, threat T-10-11).
+  # After code is removed, `go mod tidy` must already have been run and
+  # committed: a dependency (or go.sum hash) that only the removed code needed
+  # would otherwise linger in the published module graph. Runs tidy on the
+  # pinned go-1.22 toolchain and reddens if go.mod or go.sum changes.
+  go-mod-tidy:
+    name: go.mod / go.sum tidy-clean
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          check-latest: true
+
+      - name: Assert go mod tidy produces no drift
+        run: |
+          go mod tidy
+          DRIFT=$(git status --porcelain go.mod go.sum)
+          if [ -n "$DRIFT" ]; then
+            echo "go.mod/go.sum are not tidy (commit the output of go mod tidy):"
+            printf '%s\n' "$DRIFT"
+            git diff -- go.mod go.sum
+            exit 1
+          fi
+          echo "GOMOD_TIDY_CLEAN"
