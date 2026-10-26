@@ -5,7 +5,7 @@
 // contribute to as the pipeline runs.
 //
 // It is the accumulator seam (Phase-3 discretion decision): the discovery stage
-// writes discovered assets here, later stages (port, fingerprint, authposture)
+// writes discovered assets here, later scanning stages (port, fingerprint)
 // enrich the same accumulator, and main.go snapshots it after the pipeline to
 // marshal the wire payload. The pipeline control-flow package is left untouched
 // — stage closures built in main.go capture a *ScanState — so the existing
@@ -53,9 +53,9 @@ func (s *ScanState) AddAsset(a payload.AssetItem) {
 
 // AddSoftwareInventory appends one installed-software row to the accumulated
 // payload's top-level software_inventory slice. It mirrors AddAsset exactly
-// (mutex-guarded append) and is safe for concurrent callers. The authposture
-// stage is the single caller; its readers return facts and authposture.go does
-// the append through here (the reader files never call ScanState).
+// (mutex-guarded append) and is safe for concurrent callers. The later scanning
+// stage that emits these rows is the single caller; its readers return facts and
+// its merge point does the append through here (readers never call ScanState).
 func (s *ScanState) AddSoftwareInventory(item payload.SoftwareInventoryItem) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -107,7 +107,7 @@ func (s *ScanState) Payload() payload.Payload {
 }
 
 // Assets returns a snapshot copy of the accumulated asset slice under lock, so a
-// later scanning stage (port, fingerprint, authposture) can read the hosts the
+// later scanning stage (port, fingerprint) can read the hosts the
 // discovery stage recorded without racing concurrent writers or aliasing the
 // internal slice. The copy is shallow: the AssetItem values are safe to inspect,
 // but writing enrichment back MUST go through UpdateAsset so the mutation is

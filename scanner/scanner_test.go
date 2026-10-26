@@ -258,10 +258,10 @@ func TestRunSinkSequence(t *testing.T) {
 	}
 }
 
-// TestDefaultStagesThreeNoAuthposture proves the public default order is exactly
-// the three non-proprietary stages (LIB-03); authposture absence is enforced
-// structurally (no fourth stage) and by the NO_AUTHPOSTURE_DEP build gate.
-func TestDefaultStagesThreeNoAuthposture(t *testing.T) {
+// TestDefaultStagesThreeNoProprietaryStage proves the public default order is
+// exactly the three non-proprietary stages (LIB-03); the proprietary stage's
+// absence is enforced structurally by the three-stage count.
+func TestDefaultStagesThreeNoProprietaryStage(t *testing.T) {
 	if got := len(DefaultStages()); got != 3 {
 		t.Fatalf("DefaultStages() returned %d stages, want exactly 3 (discovery, port, fingerprint)", got)
 	}
@@ -270,12 +270,12 @@ func TestDefaultStagesThreeNoAuthposture(t *testing.T) {
 // TestStandaloneSmoke is the zero-proprietary-code end-to-end proof (LIB-03): it
 // drives the library against an auto-detect-shaped scope with no ExtraStages and
 // no proprietary knowledge, asserts the produced payload is strict-valid v6, and
-// asserts the public default order is exactly three stages with authposture
-// absent. (A non-routable TEST-NET scope keeps the run fast and deterministic;
+// asserts the public default order is exactly three stages with the proprietary
+// stage absent. (A non-routable TEST-NET scope keeps the run fast and deterministic;
 // the full auto-detect path is exercised by the CLI NDJSON smoke in verify.)
 func TestStandaloneSmoke(t *testing.T) {
 	if got := len(DefaultStages()); got != 3 {
-		t.Fatalf("DefaultStages() = %d stages, want exactly 3 (authposture must be absent, LIB-03)", got)
+		t.Fatalf("DefaultStages() = %d stages, want exactly 3 (the proprietary stage must be absent, LIB-03)", got)
 	}
 	pl, err := Run(context.Background(), Config{CIDRs: testScope}, nil)
 	if err != nil {

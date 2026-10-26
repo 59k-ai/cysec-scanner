@@ -84,7 +84,7 @@ func TestServiceBannersSideChannelIsolated(t *testing.T) {
 }
 
 // TestAddTopLevelSliceAccessors proves each new top-level-slice accessor appends
-// one row to its matching payload slice (the authposture seam). One append per
+// one row to its matching payload slice (the later-stage seam). One append per
 // accessor, mirroring the AddAsset contract.
 func TestAddTopLevelSliceAccessors(t *testing.T) {
 	t.Parallel()

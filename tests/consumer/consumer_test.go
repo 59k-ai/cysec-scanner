@@ -127,7 +127,8 @@ func TestConsumerDrivesRun(t *testing.T) {
 }
 
 // TestConsumerDefaultStages proves the public default order visible to a separate
-// module is exactly the three non-proprietary stages (authposture absent, LIB-03).
+// module is exactly the three non-proprietary stages (the proprietary stage
+// absent, LIB-03).
 func TestConsumerDefaultStages(t *testing.T) {
 	if got := len(scanner.DefaultStages()); got != 3 {
 		t.Fatalf("scanner.DefaultStages() = %d, want exactly 3", got)

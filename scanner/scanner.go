@@ -58,7 +58,7 @@ type Config struct {
 }
 
 // DefaultStages returns the three non-proprietary built-in stages (discovery,
-// port, fingerprint) in order (LIB-03). The proprietary authposture stage is NOT
+// port, fingerprint) in order (LIB-03). The proprietary posture stage is NOT
 // in the public default order; a consumer authors it against ScanContext and
 // appends it via Config.ExtraStages. The returned stages carry curated default
 // options; Run builds its own default closures from Config and does not call

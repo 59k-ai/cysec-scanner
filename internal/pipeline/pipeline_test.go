@@ -45,7 +45,7 @@ func TestContextCancel(t *testing.T) {
 }
 
 // TestStageOrder proves the stub stages execute in the fixed deterministic order
-// discovery -> port -> fingerprint -> authposture when the context is live.
+// discovery -> port -> fingerprint when the context is live.
 func TestStageOrder(t *testing.T) {
 	t.Parallel()
 
@@ -56,7 +56,7 @@ func TestStageOrder(t *testing.T) {
 		t.Fatalf("Run with a live context returned %v, want nil", err)
 	}
 
-	want := []StageName{StageDiscovery, StagePort, StageFingerprint, StageAuthPosture}
+	want := []StageName{StageDiscovery, StagePort, StageFingerprint}
 	if len(observed) != len(want) {
 		t.Fatalf("observed %v stages, want %v", observed, want)
 	}

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package pipeline is the staged scan runner skeleton (ENG-01): a fixed,
-// deterministic sequence of stages — discovery -> port -> fingerprint ->
-// authposture — executed under one cancelable context.Context threaded from
+// deterministic sequence of stages — discovery -> port -> fingerprint —
+// executed under one cancelable context.Context threaded from
 // main, with feed-forward gating (a stage runs only if every prior stage
 // succeeded, which the sequential-with-early-return loop provides for free).
 //
@@ -21,12 +21,11 @@ const (
 	StageDiscovery   StageName = "discovery"
 	StagePort        StageName = "port"
 	StageFingerprint StageName = "fingerprint"
-	StageAuthPosture StageName = "authposture"
 )
 
 // Order is the fixed, deterministic stage order. The default pipeline runs its
 // stages in exactly this sequence.
-var Order = []StageName{StageDiscovery, StagePort, StageFingerprint, StageAuthPosture}
+var Order = []StageName{StageDiscovery, StagePort, StageFingerprint}
 
 // StageFunc is one stage body. Phase-2 bodies are no-ops.
 type StageFunc func(ctx context.Context) error
