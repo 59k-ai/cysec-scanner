@@ -42,3 +42,36 @@ func (sc *ScanContext) Assets() []payload.AssetItem {
 func (sc *ScanContext) UpdateAsset(externalID string, fn func(*payload.AssetItem)) {
 	sc.st.UpdateAsset(externalID, fn)
 }
+
+// AddSoftwareInventory appends one installed-software row to the payload's
+// top-level software_inventory slice. Safe for concurrent stages: the
+// accumulator owns the lock.
+func (sc *ScanContext) AddSoftwareInventory(it payload.SoftwareInventoryItem) {
+	sc.st.AddSoftwareInventory(it)
+}
+
+// AddMissingKb appends one missing-update row to the payload's top-level
+// missing_kbs slice. Safe for concurrent stages: the accumulator owns the lock.
+func (sc *ScanContext) AddMissingKb(it payload.MissingKbItem) {
+	sc.st.AddMissingKb(it)
+}
+
+// AddConfigurationCheck appends one configuration-check row to the payload's
+// top-level configuration_checks slice. Safe for concurrent stages: the
+// accumulator owns the lock.
+func (sc *ScanContext) AddConfigurationCheck(it payload.ConfigurationCheckItem) {
+	sc.st.AddConfigurationCheck(it)
+}
+
+// AddPasswordPolicy appends one password-policy row to the payload's top-level
+// password_policies slice. Safe for concurrent stages: the accumulator owns the
+// lock.
+func (sc *ScanContext) AddPasswordPolicy(it payload.PasswordPolicyItem) {
+	sc.st.AddPasswordPolicy(it)
+}
+
+// AddIdentity appends one identity row to the payload's top-level identities
+// slice. Safe for concurrent stages: the accumulator owns the lock.
+func (sc *ScanContext) AddIdentity(it payload.IdentityItem) {
+	sc.st.AddIdentity(it)
+}
