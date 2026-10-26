@@ -151,6 +151,66 @@ func TestRunExtraStageSeesScanContext(t *testing.T) {
 	assertStrictValidV6(t, pl)
 }
 
+// TestRunExtraStageWidenedFacadeEmits proves the five slice-writer methods on
+// the ScanContext facade reach the payload Run returns: an ExtraStage appends
+// one row to each top-level slice and every row survives Run -> facade ->
+// accumulator -> returned payload, which stays strict-valid v6.
+func TestRunExtraStageWidenedFacadeEmits(t *testing.T) {
+	minLen := 12
+	extra := func(ctx context.Context, sc *ScanContext) error {
+		sc.AddSoftwareInventory(payload.SoftwareInventoryItem{
+			AssetExternalID: "host-1",
+			DisplayName:     "Example App",
+			InstallSource:   "test",
+		})
+		sc.AddMissingKb(payload.MissingKbItem{
+			AssetExternalID: "host-1",
+			KBID:            "KB0000001",
+			Title:           "Example update",
+			Severity:        "high",
+		})
+		sc.AddConfigurationCheck(payload.ConfigurationCheckItem{
+			AssetExternalID: "host-1",
+			CheckCode:       "EXAMPLE-001",
+			Title:           "Example check",
+			Status:          "fail",
+			Severity:        "medium",
+		})
+		sc.AddPasswordPolicy(payload.PasswordPolicyItem{
+			PolicyName: "Default",
+			Scope:      "domain",
+			MinLength:  &minLen,
+		})
+		sc.AddIdentity(payload.IdentityItem{
+			ExternalID: "user-1",
+			Username:   "alice",
+			Source:     "directory",
+			IsActive:   true,
+		})
+		return nil
+	}
+
+	pl, err := Run(context.Background(), Config{CIDRs: testScope, ExtraStages: []Stage{extra}}, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(pl.SoftwareInventory) != 1 || len(pl.MissingKbs) != 1 ||
+		len(pl.ConfigurationChecks) != 1 || len(pl.PasswordPolicies) != 1 ||
+		len(pl.Identities) != 1 {
+		t.Fatalf("slice lengths software=%d missing_kbs=%d config_checks=%d password_policies=%d identities=%d, want 1 each",
+			len(pl.SoftwareInventory), len(pl.MissingKbs), len(pl.ConfigurationChecks),
+			len(pl.PasswordPolicies), len(pl.Identities))
+	}
+	// Name-matched delegation: each row landed in its own slice, not a sibling.
+	if pl.PasswordPolicies[0].PolicyName != "Default" {
+		t.Errorf("password_policies[0].policy_name = %q, want %q", pl.PasswordPolicies[0].PolicyName, "Default")
+	}
+	if pl.Identities[0].Username != "alice" {
+		t.Errorf("identities[0].username = %q, want %q", pl.Identities[0].Username, "alice")
+	}
+	assertStrictValidV6(t, pl)
+}
+
 // TestRunSinkSequence pins the progress event sequence Run owns (D-08): with nil
 // ExtraStages the sink sees phase_start + one agent_start per default stage +
 // phase_done, with a contiguous monotonic Seq from 0, the expected kind/phase/
