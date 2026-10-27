@@ -15,8 +15,8 @@ on:
 jobs:
   # Gate G0 — Qt toolchain install spike (RESEARCH assumption A1, threat T-13-SC).
   # aqtinstall 3.3.x predates Qt 6.10+, so whether 6.12.0 installs is an
-  # empirical question answered here. Three 6.12.0 legs (one per D-17 runner)
-  # plus one 6.8.3 Linux leg (the API floor per the RESEARCH Qt Version
+  # empirical question answered here. One leg per D-17 runner (6.12.0 on macOS
+  # and Linux, the 6.11.1 fallback on Windows) plus one 6.8.3 Linux leg (the API floor per the RESEARCH Qt Version
   # Decision). install-qt-action is pinned by full commit SHA and aqtinstall by
   # version range '==3.3.*'; both were approved by a human before first use.
   # The spike uses no secrets and no write tokens. fail-fast is off so every
@@ -34,8 +34,11 @@ jobs:
           - os: ubuntu-24.04
             qt: "6.12.0"
             arch: linux_gcc_64
+          # 6.11.1 fallback: aqtinstall 3.3.0 cannot locate the 6.12.0 Windows
+          # repository XML ("Failed to locate XML data for Qt version
+          # '6.12.0'") while the 6.12.0 macOS and Linux legs install cleanly.
           - os: windows-2022
-            qt: "6.12.0"
+            qt: "6.11.1"
             arch: win64_msvc2022_64
           - os: ubuntu-24.04
             qt: "6.8.3"
