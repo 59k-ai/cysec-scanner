@@ -31,6 +31,67 @@ type ScanState struct {
 	// re-dialing. It is internal state only and is NEVER serialized into the
 	// payload (raw banners stay off the wire — size + privacy).
 	serviceBanners map[string]map[int]string
+	// obs is the optional live-progress observer (set once before stages run).
+	obs *Observer
+}
+
+// Observer receives live accumulator activity for opt-in detailed progress
+// (D-05). Every func is optional; a nil Observer or nil func is a no-op. All
+// callbacks run WITHOUT the ScanState lock held, so they may call back into
+// ScanState, and OnAsset always receives an isolated copy.
+type Observer struct {
+	OnAsset    func(payload.AssetItem)
+	OnProgress func(stage string, done, total int)
+	OnHostSeen func(ip string)
+	OnLog      func(level, msg string)
+}
+
+// SetObserver installs o as the live-progress observer. Call it once before any
+// stage runs; nil disables observation.
+func (s *ScanState) SetObserver(o *Observer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.obs = o
+}
+
+// observer returns the installed observer under lock.
+func (s *ScanState) observer() *Observer {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.obs
+}
+
+// ReportProgress forwards a per-stage done/total count to the observer.
+func (s *ScanState) ReportProgress(stage string, done, total int) {
+	if o := s.observer(); o != nil && o.OnProgress != nil {
+		o.OnProgress(stage, done, total)
+	}
+}
+
+// ReportHostSeen forwards a responsive-host notification to the observer.
+func (s *ScanState) ReportHostSeen(ip string) {
+	if o := s.observer(); o != nil && o.OnHostSeen != nil {
+		o.OnHostSeen(ip)
+	}
+}
+
+// ReportLog forwards a log line to the observer.
+func (s *ScanState) ReportLog(level, msg string) {
+	if o := s.observer(); o != nil && o.OnLog != nil {
+		o.OnLog(level, msg)
+	}
+}
+
+// copyAsset returns a with its slices copied so the result shares no backing
+// array with the accumulator.
+func copyAsset(a payload.AssetItem) payload.AssetItem {
+	if a.Services != nil {
+		a.Services = append([]payload.ServiceItem{}, a.Services...)
+	}
+	if a.NetworkAliases != nil {
+		a.NetworkAliases = append([]payload.NetworkAliasItem{}, a.NetworkAliases...)
+	}
+	return a
 }
 
 // New returns a ScanState seeded with an empty-ish strict-valid payload (the
@@ -47,8 +108,16 @@ func New(payloadType, collectorVersion string) *ScanState {
 // concurrent callers.
 func (s *ScanState) AddAsset(a payload.AssetItem) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.pl.Assets = append(s.pl.Assets, a)
+	obs := s.obs
+	var cp payload.AssetItem
+	if obs != nil && obs.OnAsset != nil {
+		cp = copyAsset(a)
+	}
+	s.mu.Unlock()
+	if obs != nil && obs.OnAsset != nil {
+		obs.OnAsset(cp)
+	}
 }
 
 // AddSoftwareInventory appends one installed-software row to the accumulated
@@ -123,15 +192,25 @@ func (s *ScanState) Assets() []payload.AssetItem {
 // merge seam a later stage uses to enrich a discovered asset (add services,
 // merge a refined classification) without replacing the accumulator or touching
 // the pipeline control-flow package. fn runs while the lock is held, so it must
-// not call back into ScanState (which would deadlock).
+// not call back into ScanState (which would deadlock). When an observer is set,
+// OnAsset receives a copy of the updated asset after the lock is released.
 func (s *ScanState) UpdateAsset(externalID string, fn func(*payload.AssetItem)) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i := range s.pl.Assets {
-		if s.pl.Assets[i].ExternalID == externalID {
-			fn(&s.pl.Assets[i])
-			return
+	obs, cp, found := func() (*Observer, payload.AssetItem, bool) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for i := range s.pl.Assets {
+			if s.pl.Assets[i].ExternalID == externalID {
+				fn(&s.pl.Assets[i])
+				if s.obs != nil && s.obs.OnAsset != nil {
+					return s.obs, copyAsset(s.pl.Assets[i]), true
+				}
+				return nil, payload.AssetItem{}, true
+			}
 		}
+		return nil, payload.AssetItem{}, false
+	}()
+	if found && obs != nil {
+		obs.OnAsset(cp)
 	}
 }
 

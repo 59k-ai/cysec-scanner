@@ -144,6 +144,14 @@ func looksLikeMAC(s string) bool {
 	return err == nil
 }
 
+// ParseScopeToken parses one scope token exactly as discovery does: an IPv4
+// CIDR prefix (masked), or a bare IPv4 address treated as a /32. Non-IPv4 and
+// malformed tokens return ok=false. Exported so the scanner can report the
+// entries discovery would otherwise drop silently.
+func ParseScopeToken(token string) (netip.Prefix, bool) {
+	return parsePrefixOrAddr(token)
+}
+
 // parsePrefixOrAddr parses a scope token as an IPv4 CIDR prefix, or as a bare
 // IPv4 address treated as a /32. Non-IPv4 and malformed tokens return ok=false.
 func parsePrefixOrAddr(token string) (netip.Prefix, bool) {

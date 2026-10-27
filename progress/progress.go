@@ -15,6 +15,12 @@
 // it synchronously as each stage begins, with a fully-populated Event. A nil
 // sink means no progress is emitted. Run owns Seq/TS assignment (D-08) — the
 // Write path and a ProgressSink are pure serializers and assign neither.
+//
+// Detailed kinds (scan_start, stage_progress, host, log, scan_end) and the
+// agent_done lifecycle event are opt-in (D-05): they are only emitted when the
+// scanner runs with Config.DetailedEvents. They carry their payload in pointer
+// sub-objects tagged omitempty, so a legacy event marshals with exactly the
+// eight legacy keys and a legacy consumer sees a byte-identical stream.
 package progress
 
 import (
@@ -34,6 +40,14 @@ const (
 	PhaseDone  Kind = "phase_done"
 	AgentStart Kind = "agent_start"
 	AgentDone  Kind = "agent_done"
+
+	// Detailed kinds (opt-in, D-05). These extend the reference schema's kind
+	// vocabulary and are never emitted in legacy mode.
+	ScanStart     Kind = "scan_start"
+	StageProgress Kind = "stage_progress"
+	Host          Kind = "host"
+	Log           Kind = "log"
+	ScanEnd       Kind = "scan_end"
 )
 
 // Event is the on-the-wire ProgressEvent shape; keys mirror the authoritative
@@ -51,6 +65,73 @@ type Event struct {
 	Errors   int     `json:"errors"`
 	Warnings int     `json:"warnings"`
 	Assets   int     `json:"assets"`
+
+	// Detailed sub-objects (opt-in, D-05). Each is a pointer tagged omitempty so
+	// it is absent from the wire unless set; at most one is set per event.
+	Scan     *ScanInfo    `json:"scan,omitempty"`
+	Progress *StageCounts `json:"progress,omitempty"`
+	Host     *HostSummary `json:"host,omitempty"`
+	Log      *LogLine     `json:"log,omitempty"`
+	ScanEnd  *ScanEndInfo `json:"scan_end,omitempty"`
+}
+
+// ScanInfo rides on scan_start: the scope as given, the stage names in run
+// order, and the runtime capabilities detected for this run.
+type ScanInfo struct {
+	Scope        []string       `json:"scope"`
+	Stages       []string       `json:"stages"`
+	Capabilities CapabilityInfo `json:"capabilities"`
+}
+
+// CapabilityInfo is the wire model of the engine's detected runtime
+// capabilities.
+type CapabilityInfo struct {
+	UnprivilegedICMP bool `json:"unprivileged_icmp"`
+	SystemPing       bool `json:"system_ping"`
+	ARPCache         bool `json:"arp_cache"`
+}
+
+// StageCounts rides on stage_progress; the stage name travels in Event.Agent.
+type StageCounts struct {
+	Done  int `json:"done"`
+	Total int `json:"total"`
+}
+
+// HostSummary rides on host: a compact per-host view for live display. Nullable
+// fields marshal as JSON null; Services is always a JSON array.
+type HostSummary struct {
+	IP                string           `json:"ip"`
+	ExternalID        string           `json:"external_id"`
+	Hostname          string           `json:"hostname"`
+	MAC               *string          `json:"mac"`
+	MACVendor         *string          `json:"mac_vendor"`
+	OSGuess           *string          `json:"os_guess"`
+	OSGuessConfidence *float64         `json:"os_guess_confidence"`
+	Services          []ServiceSummary `json:"services"`
+}
+
+// ServiceSummary is one open service on a HostSummary.
+type ServiceSummary struct {
+	Port           int     `json:"port"`
+	Protocol       string  `json:"protocol"`
+	ServiceName    string  `json:"service_name"`
+	Product        *string `json:"product"`
+	ServiceVersion *string `json:"service_version"`
+}
+
+// LogLine rides on log. Level is "info", "warn" or "error"; Message is
+// sanitised by the engine (control runes stripped, length capped) before emit.
+type LogLine struct {
+	Level   string `json:"level"`
+	Message string `json:"message"`
+}
+
+// ScanEndInfo rides on scan_end. Status is "completed", "cancelled" or
+// "failed"; Error is set only for "failed".
+type ScanEndInfo struct {
+	Status string  `json:"status"`
+	Error  *string `json:"error"`
+	Assets int     `json:"assets"`
 }
 
 // ProgressSink is the public progress callback (D-07). It is synchronous:
