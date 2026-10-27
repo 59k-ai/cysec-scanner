@@ -102,7 +102,8 @@ jobs:
   # Builds and tests the whole module, then drives the out-of-module consumer
   # (a separate Go module that imports only the public packages and runs the
   # engine with no proprietary knowledge). Reddens if the public import contract
-  # or any in-tree test regresses.
+  # or any in-tree test regresses. The race step runs the event-emitting packages
+  # under -race (cgo on; ubuntu ships gcc) to guard the D-26 emitter mutex.
   library:
     name: library build + test + consumer proof
     runs-on: ubuntu-latest
@@ -121,6 +122,9 @@ jobs:
 
       - name: Test module
         run: go test ./...
+
+      - name: Race test (detailed events, D-26 emitter mutex)
+        run: go test -race ./scanner/... ./progress/... ./internal/scanstate/... ./internal/netutil/... ./internal/discovery/... ./internal/portscan/... ./internal/fingerprint/...
 
       - name: Out-of-module consumer test
         run: cd tests/consumer && go test ./...

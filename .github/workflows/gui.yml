@@ -1,0 +1,71 @@
+name: gui
+
+# GUI blocking CI gates (D-17: macOS, Linux and Windows from the start). The
+# current content is the Qt toolchain install spike: it proves the Qt toolchain
+# installs on every runner the GUI will build on BEFORE any GUI gate depends on
+# it. Plan 13-17 extends this workflow to the configure / build / qmllint /
+# ctest / i18n / vocabulary gates. Modelled on ci-gates.yml (same triggers,
+# checkout@v4, numbered gate headers, third-party tools pinned by commit SHA).
+# No failure-suppression: every leg MUST redden the pipeline on failure, and
+# NONE carries an allow-failure escape hatch.
+on:
+  pull_request:
+  push:
+
+jobs:
+  # Gate G0 — Qt toolchain install spike (RESEARCH assumption A1, threat T-13-SC).
+  # aqtinstall 3.3.x predates Qt 6.10+, so whether 6.12.0 installs is an
+  # empirical question answered here. Three 6.12.0 legs (one per D-17 runner)
+  # plus one 6.8.3 Linux leg (the API floor per the RESEARCH Qt Version
+  # Decision). install-qt-action is pinned by full commit SHA and aqtinstall by
+  # version range '==3.3.*'; both were approved by a human before first use.
+  # The spike uses no secrets and no write tokens. fail-fast is off so every
+  # leg reports independently and one failure cannot mask another.
+  qt-install-spike:
+    name: "Qt ${{ matrix.qt }} install spike (${{ matrix.os }})"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            qt: "6.12.0"
+            arch: clang_64
+          - os: ubuntu-24.04
+            qt: "6.12.0"
+            arch: linux_gcc_64
+          - os: windows-2022
+            qt: "6.12.0"
+            arch: win64_msvc2022_64
+          - os: ubuntu-24.04
+            qt: "6.8.3"
+            arch: linux_gcc_64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Qt ${{ matrix.qt }} (${{ matrix.arch }})
+        uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4.4.1
+        with:
+          version: ${{ matrix.qt }}
+          arch: ${{ matrix.arch }}
+          aqtversion: "==3.3.*"
+          cache: true
+
+      - name: Print toolchain versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v qtpaths >/dev/null 2>&1; then
+            echo "QT_VERSION=$(qtpaths --qt-version)"
+          else
+            echo "QT_VERSION=$(qmake -query QT_VERSION)"
+          fi
+          cmake --version
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            lupdate -version
+          fi
+
+      - name: Sentinel
+        shell: bash
+        run: echo "QT_INSTALL_OK"
