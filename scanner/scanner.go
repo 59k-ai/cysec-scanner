@@ -15,12 +15,14 @@ package scanner
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strconv"
-	"time"
 
 	"github.com/59k-ai/cysec-scanner/internal/capabilities"
 	"github.com/59k-ai/cysec-scanner/internal/discovery"
 	"github.com/59k-ai/cysec-scanner/internal/fingerprint"
+	"github.com/59k-ai/cysec-scanner/internal/netutil"
 	"github.com/59k-ai/cysec-scanner/internal/portscan"
 	"github.com/59k-ai/cysec-scanner/internal/scanstate"
 	"github.com/59k-ai/cysec-scanner/payload"
@@ -55,6 +57,11 @@ type Config struct {
 	// ExtraStages run AFTER the three built-in default stages, in declared slice
 	// order (D-06). The built-in defaults always run first.
 	ExtraStages []Stage
+	// DetailedEvents opts in to the detailed progress stream (D-05): scan_start,
+	// stage_progress, host, log, agent_done and scan_end are emitted alongside
+	// the legacy lifecycle events. Off by default so legacy consumers see a
+	// byte-identical stream; the payload is never affected either way.
+	DetailedEvents bool
 }
 
 // DefaultStages returns the three non-proprietary built-in stages (discovery,
@@ -95,7 +102,11 @@ type namedStage struct {
 // runs zero stage bodies, and a stage error short-circuits the rest
 // (feed-forward). Run OWNS progress sequencing (D-08): each Event gets a
 // contiguous monotonic Seq from 0 and a wall-clock TS before the sink (when
-// non-nil) is invoked; the sink is a pure serializer. The signature is locked.
+// non-nil) is invoked; the sink is a pure serializer. Sequencing is
+// mutex-guarded (D-26): stamping and delivery happen under one lock, so the
+// sink is never called concurrently even when stages report from many
+// goroutines. Detailed kinds are opt-in via Config.DetailedEvents (D-05). The
+// signature is locked.
 func Run(ctx context.Context, cfg Config, sink ProgressSink) (payload.Payload, error) {
 	caps := capabilities.Detect()
 	st := scanstate.New(fullPayloadType, collectorVersion)
@@ -127,21 +138,22 @@ func Run(ctx context.Context, cfg Config, sink ProgressSink) (payload.Payload, e
 		})
 	}
 
-	var seq int
-	emit := func(kind progress.Kind, phase string, agent *string) {
-		if sink != nil {
-			sink(progress.Event{
-				Kind:  kind,
-				Seq:   seq,
-				TS:    float64(time.Now().UnixNano()) / 1e9,
-				Phase: phase,
-				Agent: agent,
-			})
+	em := newEventEmitter(sink, cfg.DetailedEvents)
+	if cfg.DetailedEvents {
+		names := make([]string, len(stages))
+		for i, ns := range stages {
+			names[i] = ns.name
 		}
-		seq++
+		em.scanStart(cfg.CIDRs, names, caps)
+		for _, tok := range cfg.CIDRs {
+			if _, ok := netutil.ParseScopeToken(tok); !ok {
+				em.log("warn", fmt.Sprintf("scope entry %q ignored: not an IPv4 network", tok))
+			}
+		}
+		st.SetObserver(observerFor(em))
 	}
 
-	emit(progress.PhaseStart, "collect", nil)
+	em.lifecycle(progress.PhaseStart, nil, 0)
 	var runErr error
 	for _, ns := range stages {
 		if err := ctx.Err(); err != nil {
@@ -149,13 +161,33 @@ func Run(ctx context.Context, cfg Config, sink ProgressSink) (payload.Payload, e
 			break
 		}
 		name := ns.name
-		emit(progress.AgentStart, "collect", &name)
+		em.lifecycle(progress.AgentStart, &name, 0)
 		if err := ns.run(ctx); err != nil {
 			runErr = err
+			if cfg.DetailedEvents && !isCancel(err) {
+				em.log("error", fmt.Sprintf("stage %s failed: %v", name, err))
+			}
 			break
 		}
+		if cfg.DetailedEvents {
+			em.lifecycle(progress.AgentDone, &name, len(st.Assets()))
+		}
 	}
-	emit(progress.PhaseDone, "collect", nil)
+	em.lifecycle(progress.PhaseDone, nil, 0)
+	if cfg.DetailedEvents {
+		status := "completed"
+		var errText *string
+		switch {
+		case runErr == nil:
+		case isCancel(runErr):
+			status = "cancelled"
+		default:
+			status = "failed"
+			txt := sanitiseLogText(runErr.Error())
+			errText = &txt
+		}
+		em.scanEnd(status, errText, len(st.Assets()))
+	}
 	if runErr != nil {
 		return payload.Payload{}, runErr
 	}
@@ -163,4 +195,9 @@ func Run(ctx context.Context, cfg Config, sink ProgressSink) (payload.Payload, e
 	pl := st.Payload()
 	pl.Normalize()
 	return pl, nil
+}
+
+// isCancel reports whether err is a context cancellation or deadline.
+func isCancel(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
