@@ -161,7 +161,12 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: |
           export CYSEC_SCANNER_BIN="$CYSEC_ENGINE"
-          ctest --test-dir gui/build -C Release --output-on-failure
+          # On failure re-run only the failed tests verbosely, so their QtTest
+          # output is visible in the log; the step still fails.
+          ctest --test-dir gui/build -C Release --output-on-failure || {
+            ctest --test-dir gui/build -C Release --rerun-failed -V
+            exit 1
+          }
 
       - name: Library-only consumer build (SGUI-01)
         if: matrix.lib_consumer

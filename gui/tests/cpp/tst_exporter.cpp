@@ -107,6 +107,7 @@ private slots:
     void jsonByteIdentical();
     void jsonMissingSource();
     void jsonUnwritableTargetLeavesNothing();
+    void jsonTargetParentIsFileRejected();
     void jsonInvalidSourceRejected();
     void jsonNonLocalTargetRejected();
     void csvHostileRowPartial();
@@ -163,6 +164,13 @@ void TestExporter::jsonMissingSource()
 
 void TestExporter::jsonUnwritableTargetLeavesNothing()
 {
+#ifdef Q_OS_WIN
+    // On Windows QFile::setPermissions on a directory only toggles the
+    // read-only attribute, which does not stop files being created inside it,
+    // so the premise of this case does not hold. jsonTargetParentIsFileRejected
+    // covers the unwritable-target path on every OS.
+    QSKIP("directory permission bits do not block file creation on Windows");
+#endif
     QTemporaryDir dir;
     const QString locked = dir.filePath(QStringLiteral("locked"));
     QVERIFY(QDir().mkdir(locked));
@@ -177,6 +185,27 @@ void TestExporter::jsonUnwritableTargetLeavesNothing()
     QVERIFY(!r.value("error").toString().isEmpty());
     QVERIFY(QDir(locked).entryList(QDir::NoDotAndDotDot | QDir::AllEntries | QDir::Hidden)
                 .isEmpty());
+}
+
+void TestExporter::jsonTargetParentIsFileRejected()
+{
+    // A target whose parent is a regular file cannot be created on any OS.
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString blocker = dir.filePath(QStringLiteral("blocker"));
+    {
+        QFile f(blocker);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("x");
+    }
+    Exporter e;
+    const QVariantMap r = e.exportJson(fixturePath("payload-export-cancelled.json"),
+                                       QUrl::fromLocalFile(blocker + QStringLiteral("/out.json")));
+    QVERIFY(!r.value("ok").toBool());
+    QVERIFY(!r.value("error").toString().isEmpty());
+    QCOMPARE(readAll(blocker), QByteArray("x"));
+    QCOMPARE(QDir(dir.path()).entryList(QDir::NoDotAndDotDot | QDir::AllEntries | QDir::Hidden),
+             QStringList{QStringLiteral("blocker")});
 }
 
 void TestExporter::jsonInvalidSourceRejected()
