@@ -7,6 +7,13 @@
 
 set_source_files_properties(Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
+# The About dialog shows the repository's third-party notices. The file lives
+# at the repo root; the alias makes it reachable as
+# qrc:/qt/qml/Cysec/Scanner/Ui/THIRD_PARTY_NOTICES.md.
+set(CYSEC_NOTICES_FILE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../THIRD_PARTY_NOTICES.md")
+set_source_files_properties("${CYSEC_NOTICES_FILE}" PROPERTIES
+    QT_RESOURCE_ALIAS "THIRD_PARTY_NOTICES.md")
+
 qt_add_qml_module(cysec_scanner_ui
     URI Cysec.Scanner.Ui
     VERSION 1.0
@@ -19,6 +26,17 @@ qt_add_qml_module(cysec_scanner_ui
         DestructiveButton.qml
         StatusBadge.qml
         LabeledField.qml
+        CapabilityBanner.qml
+        ProgressPanel.qml
+        ResultsTable.qml
+        DetailPanel.qml
+        LogPanel.qml
+        ConfirmDialog.qml
+        AboutDialog.qml
+        SettingsMenu.qml
+        ExportSheet.qml
+        SetupBar.qml
+        ScannerView.qml
     SOURCES
         appearance.h
         appearance.cpp
@@ -59,6 +77,7 @@ qt_add_qml_module(cysec_scanner_ui
         icons/warning.svg
         icons/error.svg
         icons/info.svg
+        "${CYSEC_NOTICES_FILE}"
 )
 
 target_link_libraries(cysec_scanner_ui PUBLIC Qt6::Quick Qt6::QuickControls2 Qt6::Network)
