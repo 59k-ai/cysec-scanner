@@ -83,16 +83,27 @@ Dialog {
         border.color: Theme.hairline
     }
 
-    header: PlainLabel {
-        objectName: "dialogTitle"
-        text: root.title
-        leftPadding: Theme.spaceLg
-        rightPadding: Theme.spaceLg
-        topPadding: Theme.spaceLg
-        font.pixelSize: Theme.fontSizeHeading
-        font.weight: Theme.weightSemiBold
-        wrapMode: Text.Wrap
-        elide: Text.ElideNone
+    // The title sits in a plain Item: the dialog width is explicit, and a
+    // wrapped label's natural width fed into the dialog's implicit size
+    // causes an implicitHeight binding loop when the body and buttons are
+    // short (seen with "Quit without exporting?").
+    header: Item {
+        readonly property alias text: titleLabel.text
+        implicitHeight: titleLabel.implicitHeight
+
+        PlainLabel {
+            id: titleLabel
+            objectName: "dialogTitle"
+            width: parent.width
+            text: root.title
+            leftPadding: Theme.spaceLg
+            rightPadding: Theme.spaceLg
+            topPadding: Theme.spaceLg
+            font.pixelSize: Theme.fontSizeHeading
+            font.weight: Theme.weightSemiBold
+            wrapMode: Text.Wrap
+            elide: Text.ElideNone
+        }
     }
 
     contentItem: FocusScope {
