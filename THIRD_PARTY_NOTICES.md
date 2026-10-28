@@ -94,3 +94,44 @@ As engine code and its dependencies land in later phases, the per-dependency
 notices gathered by `go-licenses save ./... --save_path=...` will be appended
 here so that every third-party Go module that ships in the binary carries its
 required notice.
+
+## GUI Assets
+
+The optional desktop GUI under [`gui/`](./gui/) bundles the assets below into
+its QML module. They are not part of the Go engine binary.
+
+### IBM Plex Sans and IBM Plex Mono fonts
+
+- **Source:** https://github.com/IBM/plex (release tags `@ibm/plex-sans@1.1.0`
+  and `@ibm/plex-mono@1.1.0`, `fonts/complete/ttf/` from each release zip,
+  unmodified)
+- **Path:** `gui/src/Cysec/Scanner/Ui/fonts/`
+- **License:** SIL Open Font License 1.1 (`OFL-1.1`); full text shipped as
+  [`gui/src/Cysec/Scanner/Ui/fonts/OFL.txt`](./gui/src/Cysec/Scanner/Ui/fonts/OFL.txt)
+  and embedded in the GUI next to the fonts
+- **Copyright:** Copyright © 2017 IBM Corp. with Reserved Font Name "Plex"
+
+| File | Release | SHA-256 |
+|------|---------|---------|
+| `IBMPlexSans-Regular.ttf` | `@ibm/plex-sans@1.1.0` | `975dcda37d80f038dcd143c22e33ca2d97a0cc5a929aace1c749153b0fe1afa5` |
+| `IBMPlexSans-SemiBold.ttf` | `@ibm/plex-sans@1.1.0` | `a20caf8286023a6a7a85e40b1d2a4ae9fc3e3b1f9eda8f4c542dd4986af67bb1` |
+| `IBMPlexMono-Regular.ttf` | `@ibm/plex-mono@1.1.0` | `fe11304a5fe956d5744e9b6a246cc83d90425245e75a62230044966ca96a7f50` |
+| `IBMPlexMono-SemiBold.ttf` | `@ibm/plex-mono@1.1.0` | `c9417148ce13f8fa7d2d5c9180bbc141f72aa0d814ffeb280f6904dc2b1bbd7a` |
+
+### Qt 6
+
+- **Source:** https://download.qt.io/ (complete corresponding source for every
+  Qt release)
+- **License:** GNU Lesser General Public License v3 (`LGPL-3.0-only`)
+
+The GUI uses Qt under the LGPLv3 and links it dynamically: the Qt libraries
+ship as separate shared libraries / frameworks next to the executable. You may
+replace them with your own modified build of the same Qt version and relink;
+the Qt source is available from download.qt.io, and the GUI source is in this
+repository.
+
+### GUI icons
+
+- **Path:** `gui/src/Cysec/Scanner/Ui/icons/`
+- **License:** Apache-2.0 (original work of 59k GmbH, same license as this
+  repository)

@@ -14,6 +14,19 @@ qt_add_qml_module(cysec_scanner_ui
     QML_FILES
         Theme.qml
         PlainLabel.qml
+    SOURCES
+        appearance.h
+        appearance.cpp
+    RESOURCES
+        fonts/IBMPlexSans-Regular.ttf
+        fonts/IBMPlexSans-SemiBold.ttf
+        fonts/IBMPlexMono-Regular.ttf
+        fonts/IBMPlexMono-SemiBold.ttf
+        fonts/OFL.txt
+        icons/chevron.svg
+        icons/warning.svg
+        icons/error.svg
+        icons/info.svg
 )
 
 target_link_libraries(cysec_scanner_ui PUBLIC Qt6::Quick Qt6::QuickControls2 Qt6::Network)
