@@ -88,14 +88,14 @@ TestCase {
     function test_hostsCounter() {
         const panel = running({})
         // %n plural through qsTr. The English singular/plural forms come from
-        // the plural-only English catalogue LanguageController loads (13-13);
-        // without a translator the source form is shown.
+        // the plural-only English catalogue LanguageController loads at
+        // startup (13-13, forms filled in 13-17).
         const label = findChild(panel, "hostsText")
-        compare(label.text, qsTr("%n host(s) found", "", 3))
+        compare(label.text, "3 hosts found")
         verify(label.text.indexOf("3") === 0, label.text)
         verify(label.text.indexOf("%n") < 0, label.text)
         panel.hostsFound = 1
-        compare(label.text, qsTr("%n host(s) found", "", 1))
+        compare(label.text, "1 host found")
         verify(label.text.indexOf("1") === 0, label.text)
     }
 

@@ -188,7 +188,7 @@ TestCase {
         compare(progress.statusText, "")
 
         s.state = ScanSession.Completed
-        compare(progress.statusText, qsTr("Scan complete: %n host(s) found.", "", 2))
+        compare(progress.statusText, "Scan complete: 2 hosts found.")
         s.state = ScanSession.Partial
         compare(progress.statusText, qsTr("Partial results: scan stopped before finishing."))
     }
