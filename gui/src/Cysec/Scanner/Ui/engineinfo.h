@@ -6,10 +6,13 @@
 #include <QByteArray>
 #include <QList>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 #include <QVariantList>
 #include <QtQml/qqmlregistration.h>
+
+class QProcess;
 
 // EngineInfo asks the engine to describe itself (version, host
 // capabilities, local networks, default ports, timing tiers) and exposes the
@@ -61,6 +64,15 @@ signals:
     void changed();
 
 private:
+    // Private additions (plan 13-13): the in-flight --describe process.
+    void markFailed();
+    void finishProcess(bool ok);
+
+    QPointer<QProcess> m_process;
+    QByteArray m_stdout;
+    bool m_overflow = false;
+    bool m_timedOut = false;
+
     QString m_enginePath;
     bool m_loaded = false;
     bool m_failed = false;
