@@ -3,10 +3,14 @@
 
 // ScanSession: the transport-agnostic state machine between a ScanBackend
 // and the QML views. The unit slots drive it through an in-test FakeBackend
-// (D-18: the session only ever sees the abstract seam).
+// (D-18: the session only ever sees the abstract seam). The integration
+// slots run the same session over the real QProcess transport against
+// cysec-fake-engine.
 
+#include "exporter.h"
 #include "hostmodel.h"
 #include "logmodel.h"
+#include "processscanbackend.h"
 #include "scanbackend.h"
 #include "scanevent.h"
 #include "scansession.h"
@@ -16,9 +20,71 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSignalSpy>
+#include <QTemporaryDir>
+#include <QUrl>
 #include <QtTest>
 
+#ifndef CYSEC_FAKE_ENGINE_PATH
+#error "tst_session needs the cysec-fake-engine target"
+#endif
+
 namespace {
+
+const char *const kFakeEnv[] = {
+    "FAKE_ENGINE_FIXTURE",      "FAKE_ENGINE_PAYLOAD",      "FAKE_ENGINE_CANCEL_PAYLOAD",
+    "FAKE_ENGINE_DELAY_MS",     "FAKE_ENGINE_HOLD_MS",      "FAKE_ENGINE_EXIT_CODE",
+    "FAKE_ENGINE_IGNORE_STDIN", "FAKE_ENGINE_STDERR_BYTES", "FAKE_ENGINE_ARGV_OUT",
+    "FAKE_ENGINE_PID_OUT",      "FAKE_ENGINE_DESCRIBE",     "CYSEC_SCANNER_BIN",
+};
+
+void setEnv(const char *name, const QString &value)
+{
+    qputenv(name, value.toLocal8Bit());
+}
+
+// Minimal RFC 4180 reader: quoted fields, doubled quotes, CRLF records.
+QList<QStringList> parseCsv(const QString &text)
+{
+    QList<QStringList> rows;
+    QStringList row;
+    QString field;
+    bool quoted = false;
+    for (qsizetype i = 0; i < text.size(); ++i) {
+        const QChar c = text.at(i);
+        if (quoted) {
+            if (c == u'"') {
+                if (i + 1 < text.size() && text.at(i + 1) == u'"') {
+                    field += u'"';
+                    ++i;
+                } else {
+                    quoted = false;
+                }
+            } else {
+                field += c;
+            }
+            continue;
+        }
+        if (c == u'"') {
+            quoted = true;
+        } else if (c == u',') {
+            row << field;
+            field.clear();
+        } else if (c == u'\r' && i + 1 < text.size() && text.at(i + 1) == u'\n') {
+            row << field;
+            field.clear();
+            rows << row;
+            row.clear();
+            ++i;
+        } else {
+            field += c;
+        }
+    }
+    if (!field.isEmpty() || !row.isEmpty()) {
+        row << field;
+        rows << row;
+    }
+    return rows;
+}
 
 QString fixture(const char *name)
 {
@@ -134,6 +200,9 @@ class TstSession : public QObject
     Q_OBJECT
 
 private slots:
+    void init();
+    void cleanup();
+
     void initialState();
     void startBuildsRequestAndClears();
     void startWhileRunningIgnored();
@@ -157,6 +226,19 @@ private slots:
     void discardResultsReturnsToIdle();
     void newScanClearsPreviousResults();
     void setBackendSwapsConnections();
+
+    // Session + real transport against cysec-fake-engine.
+    void integrationCompleted();
+    void integrationCooperativeStop();
+    void integrationStubbornKill();
+    void integrationCsvExportFromLiveHosts();
+
+private:
+    // Runs a scan whose engine ignores the cancel request, so stop() ends in
+    // a kill with no payload. Leaves the session Partial.
+    void runStubbornToPartial(ScanSession &session, ProcessScanBackend &backend);
+
+    QTemporaryDir m_scratch;
 };
 
 void TstSession::initialState()
@@ -583,6 +665,151 @@ void TstSession::setBackendSwapsConnections()
         s.setBackend(&c);
     }
     QCOMPARE(s.backend(), nullptr);
+}
+
+void TstSession::init()
+{
+    QVERIFY(m_scratch.isValid());
+    for (const char *name : kFakeEnv)
+        qunsetenv(name);
+}
+
+void TstSession::cleanup()
+{
+    for (const char *name : kFakeEnv)
+        qunsetenv(name);
+}
+
+void TstSession::integrationCompleted()
+{
+    setEnv("FAKE_ENGINE_FIXTURE", fixture("ndjson-detailed.ndjson"));
+    setEnv("FAKE_ENGINE_PAYLOAD", fixture("payload-complete.json"));
+    ProcessScanBackend backend;
+    backend.setEnginePath(QStringLiteral(CYSEC_FAKE_ENGINE_PATH));
+    ScanSession s;
+    s.setBackend(&backend);
+
+    int maxStage = -1;
+    connect(&s, &ScanSession::progressChanged, &s,
+            [&] { maxStage = qMax(maxStage, s.currentStageIndex()); });
+    QSignalSpy reconciled(&s, &ScanSession::reconciled);
+
+    s.start({QStringLiteral("192.0.2.0/24"), QStringLiteral("198.51.100.7/32")}, QString(),
+            false);
+    QCOMPARE(s.state(), ScanSession::Running);
+    QTRY_COMPARE_WITH_TIMEOUT(s.state(), ScanSession::Completed, 5000);
+
+    QVERIFY(!s.partial());
+    QVERIFY(s.hasPayload());
+    QCOMPARE(reconciled.count(), 1);
+    QCOMPARE(s.hostsFound(), payloadAssetCount("payload-complete.json"));
+    QCOMPARE(s.hosts()->count(), s.hostsFound());
+    QCOMPARE(maxStage, 2);
+    QVERIFY(s.capabilitiesKnown());
+    QVERIFY(!s.unprivilegedIcmp());
+    QCOMPARE(s.scope(),
+             (QStringList{QStringLiteral("192.0.2.0/24"), QStringLiteral("198.51.100.7/32")}));
+    QCOMPARE(s.log()->warningCount(), 1);
+    QCOMPARE(s.failure(), ScanSession::NoFailure);
+}
+
+void TstSession::integrationCooperativeStop()
+{
+    setEnv("FAKE_ENGINE_FIXTURE", fixture("ndjson-detailed.ndjson"));
+    setEnv("FAKE_ENGINE_CANCEL_PAYLOAD", fixture("payload-cancelled.json"));
+    setEnv("FAKE_ENGINE_DELAY_MS", QStringLiteral("200"));
+    ProcessScanBackend backend;
+    backend.setEnginePath(QStringLiteral(CYSEC_FAKE_ENGINE_PATH));
+    ScanSession s;
+    s.setBackend(&backend);
+    QSignalSpy events(&backend, &ScanBackend::eventReceived);
+
+    s.start({QStringLiteral("192.0.2.0/24")}, QString(), false);
+    QTRY_VERIFY_WITH_TIMEOUT(events.count() >= 2, 5000);
+    s.stop();
+    QCOMPARE(s.state(), ScanSession::Stopping);
+    QTRY_COMPARE_WITH_TIMEOUT(s.state(), ScanSession::Partial, 3000);
+    QVERIFY(s.hasPayload());
+    QVERIFY(s.partial());
+    QCOMPARE(s.failure(), ScanSession::NoFailure);
+    QCOMPARE(s.exitCode(), 130);
+    QCOMPARE(s.hosts()->count(), payloadAssetCount("payload-cancelled.json"));
+}
+
+void TstSession::runStubbornToPartial(ScanSession &s, ProcessScanBackend &backend)
+{
+    setEnv("FAKE_ENGINE_FIXTURE", fixture("ndjson-detailed.ndjson"));
+    setEnv("FAKE_ENGINE_CANCEL_PAYLOAD", fixture("payload-cancelled.json"));
+    setEnv("FAKE_ENGINE_IGNORE_STDIN", QStringLiteral("1"));
+    setEnv("FAKE_ENGINE_HOLD_MS", QStringLiteral("30000"));
+    backend.setEnginePath(QStringLiteral(CYSEC_FAKE_ENGINE_PATH));
+    backend.setStopGraceMs(300);
+    s.setBackend(&backend);
+
+    s.start({QStringLiteral("192.0.2.0/24")}, QString(), false);
+    // The fixture streams three hosts before the engine starts holding.
+    QTRY_COMPARE_WITH_TIMEOUT(s.hostsFound(), 3, 5000);
+    s.stop();
+    QCOMPARE(s.state(), ScanSession::Stopping);
+    QTRY_COMPARE_WITH_TIMEOUT(s.state(), ScanSession::Partial, 3000);
+}
+
+void TstSession::integrationStubbornKill()
+{
+    ProcessScanBackend backend;
+    ScanSession s;
+    runStubbornToPartial(s, backend);
+    QVERIFY(s.partial());
+    QVERIFY(!s.hasPayload());
+    QVERIFY(s.payloadPath().isEmpty());
+    QVERIFY(s.exitCode() != 0);
+    QCOMPARE(s.failure(), ScanSession::NoFailure);
+    // The live hosts are the result; they stay for CSV export.
+    QCOMPARE(s.hosts()->count(), 3);
+    QVERIFY(s.hasUnexportedResults());
+    QVERIFY(!backend.isRunning());
+}
+
+void TstSession::integrationCsvExportFromLiveHosts()
+{
+    ProcessScanBackend backend;
+    ScanSession s;
+    runStubbornToPartial(s, backend);
+    QVERIFY(!s.hasPayload());
+
+    Exporter exporter;
+    const QString out = m_scratch.filePath(QStringLiteral("out.csv"));
+    const QVariantMap result = exporter.exportCsv(s.hosts(), s.partial(), QUrl::fromLocalFile(out));
+    QVERIFY2(result.value(QStringLiteral("ok")).toBool(),
+             qPrintable(result.value(QStringLiteral("error")).toString()));
+
+    QFile f(out);
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    const QList<QStringList> rows = parseCsv(QString::fromUtf8(f.readAll()));
+    QVERIFY(!rows.isEmpty());
+    QCOMPARE(rows.first(),
+             (QStringList{QStringLiteral("ip"), QStringLiteral("hostname"), QStringLiteral("mac"),
+                          QStringLiteral("mac_vendor"), QStringLiteral("open_ports"),
+                          QStringLiteral("os_guess"), QStringLiteral("scan_status")}));
+
+    const QList<HostFact> hosts = s.hosts()->hosts();
+    QCOMPARE(rows.size() - 1, hosts.size());
+    QStringList csvIps;
+    QStringList modelIps;
+    for (qsizetype i = 1; i < rows.size(); ++i) {
+        QCOMPARE(rows.at(i).size(), 7);
+        QCOMPARE(rows.at(i).last(), QStringLiteral("partial"));
+        csvIps << rows.at(i).first();
+    }
+    for (const HostFact &h : hosts)
+        modelIps << h.ip;
+    QCOMPARE(csvIps, modelIps);
+
+    s.markExported();
+    QVERIFY(!s.hasUnexportedResults());
+
+    const QVariantMap none = exporter.exportCsv(nullptr, true, QUrl::fromLocalFile(out));
+    QVERIFY(!none.value(QStringLiteral("ok")).toBool());
 }
 
 QTEST_MAIN(TstSession)
