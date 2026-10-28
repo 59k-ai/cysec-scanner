@@ -144,3 +144,19 @@ func TestSetOSSignatureDBVersion(t *testing.T) {
 		t.Fatalf("os_signature_db_version not recorded: %+v", sm)
 	}
 }
+
+// TestSetScanStatus proves the v7 completeness marker: a fresh state carries a
+// nil scan_status (complete scan) and SetScanStatus records a copied value that
+// the Payload() snapshot exposes.
+func TestSetScanStatus(t *testing.T) {
+	t.Parallel()
+	s := New("full", "engine/0.0.0")
+	if got := s.Payload().ScanStatus; got != nil {
+		t.Fatalf("fresh ScanStatus = %q, want nil", *got)
+	}
+	s.SetScanStatus(payload.ScanStatusCancelled)
+	got := s.Payload().ScanStatus
+	if got == nil || *got != payload.ScanStatusCancelled {
+		t.Fatalf("ScanStatus = %v, want %q", got, payload.ScanStatusCancelled)
+	}
+}

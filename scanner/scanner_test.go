@@ -283,3 +283,74 @@ func TestStandaloneSmoke(t *testing.T) {
 	}
 	assertStrictValid(t, pl)
 }
+
+// TestRunCancelReturnsPartialPayload proves D-06/D-25: when the scan is
+// cooperatively cancelled after the built-ins ran, Run returns the accumulated,
+// Normalize()d partial payload marked scan_status "cancelled" TOGETHER with the
+// context error.
+func TestRunCancelReturnsPartialPayload(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	extra := func(ctx context.Context, _ *ScanContext) error {
+		cancel()
+		return ctx.Err()
+	}
+	pl, err := Run(ctx, Config{CIDRs: testScope, ExtraStages: []Stage{extra}}, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run err = %v, want context.Canceled", err)
+	}
+	if pl.SchemaVersion != payload.SchemaVersion {
+		t.Fatalf("schema_version = %d, want %d", pl.SchemaVersion, payload.SchemaVersion)
+	}
+	if pl.ScanStatus == nil || *pl.ScanStatus != payload.ScanStatusCancelled {
+		t.Fatalf("scan_status = %v, want %q", pl.ScanStatus, payload.ScanStatusCancelled)
+	}
+	if pl.Assets == nil || pl.Identities == nil || pl.ServiceExposures == nil || pl.TLSProbes == nil {
+		t.Fatalf("partial payload not normalized: %+v", pl)
+	}
+	assertStrictValid(t, pl)
+}
+
+// TestRunPreCancelledReturnsMarkedEmptyPayload proves a ctx cancelled before
+// Run runs zero stage bodies yet still yields a strict-valid, empty payload
+// marked cancelled.
+func TestRunPreCancelledReturnsMarkedEmptyPayload(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	pl, err := Run(ctx, Config{CIDRs: testScope}, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run err = %v, want context.Canceled", err)
+	}
+	assertStrictValid(t, pl)
+	if len(pl.Assets) != 0 {
+		t.Fatalf("assets = %d, want 0", len(pl.Assets))
+	}
+	if pl.ScanStatus == nil || *pl.ScanStatus != payload.ScanStatusCancelled {
+		t.Fatalf("scan_status = %v, want %q", pl.ScanStatus, payload.ScanStatusCancelled)
+	}
+}
+
+// TestRunFailureReturnsZeroPayload proves a non-cancel stage error keeps the
+// pre-v7 contract: the zero payload plus the error.
+func TestRunFailureReturnsZeroPayload(t *testing.T) {
+	extra := func(context.Context, *ScanContext) error { return errors.New("boom") }
+	pl, err := Run(context.Background(), Config{CIDRs: testScope, ExtraStages: []Stage{extra}}, nil)
+	if err == nil || err.Error() != "boom" {
+		t.Fatalf("Run err = %v, want boom", err)
+	}
+	if pl.SchemaVersion != 0 || pl.PayloadType != "" || pl.Assets != nil || pl.ScanStatus != nil {
+		t.Fatalf("payload = %+v, want zero payload", pl)
+	}
+}
+
+// TestRunSuccessScanStatusNull proves a completed run leaves scan_status nil
+// (JSON null = complete scan).
+func TestRunSuccessScanStatusNull(t *testing.T) {
+	pl, err := Run(context.Background(), Config{CIDRs: testScope}, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if pl.ScanStatus != nil {
+		t.Fatalf("scan_status = %q, want nil", *pl.ScanStatus)
+	}
+}
