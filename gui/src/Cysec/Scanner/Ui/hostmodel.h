@@ -9,8 +9,11 @@
 #include <QByteArray>
 #include <QHash>
 #include <QList>
+#include <QStringList>
 #include <QVariantMap>
 #include <QtQml/qqmlregistration.h>
+
+class QTimer;
 
 // HostModel holds one row per discovered host. Live host events are
 // coalesced and flushed to views every 100 ms so a fast scan does not
@@ -62,5 +65,14 @@ signals:
     void countChanged();
 
 private:
+    // Row key: the IP, or "id:<external_id>" for assets without an IP.
+    static QString keyOf(const HostFact &fact);
+    void rebuildIndex();
+
     QList<HostFact> m_hosts;
+    // Plan 13-10 additions (private only; the public contract is unchanged).
+    QHash<QString, int> m_index;             // key -> row in m_hosts
+    QHash<QString, HostFact> m_pending;      // coalesced, not yet visible
+    QStringList m_pendingOrder;              // arrival order of pending keys
+    QTimer *m_flushTimer = nullptr;
 };

@@ -5,6 +5,7 @@
 
 #include <QAbstractItemModel>
 #include <QAbstractTableModel>
+#include <QList>
 #include <QPointer>
 #include <QStringList>
 #include <QVariantMap>
@@ -43,6 +44,14 @@ signals:
     void columnRolesChanged();
 
 private:
+    void resolveRoles();
+    void connectSource();
+
     QPointer<QAbstractItemModel> m_source;
     QStringList m_columnRoles;
+    // Plan 13-10 additions (private only): column -> source role id (-1 if
+    // the source has no role of that name), the "host" role, connections.
+    QList<int> m_roleIds;
+    int m_hostRole = -1;
+    QList<QMetaObject::Connection> m_connections;
 };
