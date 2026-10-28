@@ -17,7 +17,8 @@ target_link_libraries(tst_ui PRIVATE Qt6::QuickTest Qt6::Quick cysec_scanner_uip
 # tst_main.cpp builds HostModel/LogModel fixtures for the QML tests.
 target_include_directories(tst_ui PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src/Cysec/Scanner/Ui")
 target_compile_definitions(tst_ui PRIVATE
-    QUICK_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    QUICK_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
+    CYSEC_GUI_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 set_target_properties(tst_ui PROPERTIES MACOSX_BUNDLE OFF WIN32_EXECUTABLE OFF)
 add_test(NAME tst_ui COMMAND tst_ui -platform offscreen)
 

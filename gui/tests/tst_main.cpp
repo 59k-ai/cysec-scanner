@@ -1,16 +1,20 @@
 // Copyright 2026 59k GmbH
 // SPDX-License-Identifier: Apache-2.0
 
+#include "engineinfo.h"
 #include "hostmodel.h"
 #include "logmodel.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QDir>
+#include <QFile>
 #include <QObject>
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QSettings>
 #include <QTemporaryDir>
+#include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
 #include <QtQuickTest>
@@ -77,6 +81,36 @@ public:
         settings.setValue(QStringLiteral("ui/language"), QStringLiteral("en"));
     }
 
+    // An EngineInfo decoded from tests/fixtures/<name> (describe output).
+    // An empty name gives a never-loaded EngineInfo (describe not answered).
+    Q_INVOKABLE QObject *engineInfo(const QString &fixture)
+    {
+        auto *info = new EngineInfo(this);
+        if (!fixture.isEmpty()) {
+            QFile f(QStringLiteral(CYSEC_GUI_FIXTURES_DIR "/") + fixture);
+            if (f.open(QIODevice::ReadOnly))
+                info->loadFromJson(f.readAll());
+        }
+        return info;
+    }
+
+    // A file URL inside a per-process temporary directory (export targets).
+    Q_INVOKABLE QUrl tempFileUrl(const QString &name) const
+    {
+        return QUrl::fromLocalFile(QDir(m_tempDir.path()).filePath(name));
+    }
+
+    Q_INVOKABLE QByteArray readFile(const QUrl &url) const
+    {
+        QFile f(url.toLocalFile());
+        return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+    }
+
+    Q_INVOKABLE QString fixturePath(const QString &name) const
+    {
+        return QStringLiteral(CYSEC_GUI_FIXTURES_DIR "/") + name;
+    }
+
     Q_INVOKABLE QDateTime logTimeAt(int index) const
     {
         return QDateTime(QDate(2026, 10, 28), QTime(14, 5, 0)).addSecs(index);
@@ -108,6 +142,7 @@ private:
     }
 
     QDateTime m_logClock;
+    QTemporaryDir m_tempDir;
 };
 
 class Setup : public QObject
