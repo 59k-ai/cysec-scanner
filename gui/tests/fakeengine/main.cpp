@@ -16,6 +16,7 @@
 //   FAKE_ENGINE_ARGV_OUT       file that receives argv (one argument per line)
 //   FAKE_ENGINE_PID_OUT        file that receives the process id
 //   FAKE_ENGINE_DESCRIBE       printed for --describe (a file path or literal JSON)
+//   FAKE_ENGINE_DESCRIBE_HOLD_MS pause before answering --describe (not cancellable)
 //
 // Cooperative cancel mirrors --cancel-on-stdin-eof: stdin EOF (or SIGTERM on
 // POSIX) stops the replay, writes the cancel payload and exits 130.
@@ -99,6 +100,11 @@ int main(int argc, char **argv)
     const QStringList args = app.arguments().mid(1);
 
     if (args.contains(QStringLiteral("--describe"))) {
+        writeFile(envStr("FAKE_ENGINE_ARGV_OUT"), args.join(QLatin1Char('\n')).toUtf8() + '\n');
+        // Simulates a hung engine: the GUI must time out and kill it.
+        const int hold = envInt("FAKE_ENGINE_DESCRIBE_HOLD_MS", 0);
+        if (hold > 0)
+            std::this_thread::sleep_for(std::chrono::milliseconds(hold));
         const QString describe = envStr("FAKE_ENGINE_DESCRIBE");
         QByteArray out = describe.toUtf8();
         QFile f(describe);
