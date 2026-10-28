@@ -1,33 +1,43 @@
 name: gui
 
-# GUI blocking CI gates (D-17: macOS, Linux and Windows from the start). The
-# current content is the Qt toolchain install spike: it proves the Qt toolchain
-# installs on every runner the GUI will build on BEFORE any GUI gate depends on
-# it. Plan 13-17 extends this workflow to the configure / build / qmllint /
-# ctest / i18n / vocabulary gates. Modelled on ci-gates.yml (same triggers,
-# checkout@v4, numbered gate headers, third-party tools pinned by commit SHA).
-# No failure-suppression: every leg MUST redden the pipeline on failure, and
-# NONE carries an allow-failure escape hatch.
+# GUI blocking CI gates (D-17: macOS, Linux and Windows from the start).
+# G1 builds, lints and tests the GUI against the real engine on every OS with
+# the ship Qt, plus the Qt 6.8 API floor on Linux. G2 keeps the translation
+# catalogue in sync with the sources and complete (I18N-01). G3 enforces the
+# SGUI-06 vocabulary and plain-text rendering rules. Modelled on ci-gates.yml
+# (same triggers, checkout@v4, setup-go@v5 "1.22", numbered gate headers,
+# third-party tools pinned by commit SHA). No failure-suppression: every job
+# and every leg MUST redden the pipeline on failure, and NONE carries an
+# allow-failure escape hatch. The name-clean leak-guard job in ci-gates.yml
+# greps every tracked file, so gui/ is already covered there.
+#
+# Qt install (threat T-13-SC, settled by the 13-03 install spike): the ship
+# toolchain is Qt 6.12.0 on all three OSes and the floor leg is 6.8.3.
+# install-qt-action is pinned by full commit SHA. aqtinstall is sourced from a
+# pinned miurahr/aqtinstall commit, not PyPI: the newest PyPI release (3.3.0)
+# cannot read the per-toolchain Windows repository layout Qt uses from 6.11
+# on (upstream issue #959, fixed by PR #1000 on master, unreleased). The same
+# pinned source serves every leg so one installer version is exercised
+# everywhere. Both were approved by a human before first use. When aqtsource
+# is set the action ignores aqtversion, so aqtversion is deliberately not
+# passed. No job uses secrets or write tokens.
 on:
   pull_request:
   push:
 
 jobs:
-  # Gate G0 — Qt toolchain install spike (RESEARCH assumption A1, threat T-13-SC).
-  # Proves the ship toolchain Qt 6.12.0 installs on every D-17 runner (macOS,
-  # Linux, Windows) plus the 6.8.3 API floor on Linux (RESEARCH Qt Version
-  # Decision). install-qt-action is pinned by full commit SHA. aqtinstall is
-  # sourced from a pinned miurahr/aqtinstall commit, not PyPI: the newest PyPI
-  # release (3.3.0) cannot read the per-toolchain Windows repository layout
-  # Qt uses from 6.11 on (upstream issue #959, fixed by PR #1000 on master,
-  # unreleased). The same pinned source serves every leg so one installer
-  # version is exercised everywhere. Both the action and this git source were
-  # approved by a human before first use. When aqtsource is set the action
-  # ignores aqtversion, so aqtversion is deliberately not passed. The spike
-  # uses no secrets and no write tokens. fail-fast is off so every leg reports
-  # independently and one failure cannot mask another.
-  qt-install-spike:
-    name: "Qt ${{ matrix.qt }} install spike (${{ matrix.os }})"
+  # Gate G1 — build, qmllint and test (SGUI-01..06, I18N-01, D-17).
+  # The engine is built from this checkout on every leg and handed to ctest
+  # through CYSEC_SCANNER_BIN, so tst_real_engine runs against the real binary
+  # instead of skipping. Tests run on the offscreen platform. macOS and Linux
+  # configure with Ninja; Windows uses the Visual Studio 2022 generator, which
+  # finds MSVC without a developer-prompt action (multi-config: --config and
+  # -C Release). The Linux ship leg also builds the module alone with the app
+  # and tests off, the way another Qt project consumes it (SGUI-01 reuse
+  # proof). fail-fast is off so every leg reports independently and one
+  # failure cannot mask another.
+  build-test:
+    name: "GUI build + test, Qt ${{ matrix.qt }} (${{ matrix.os }})"
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -36,18 +46,49 @@ jobs:
           - os: macos-latest
             qt: "6.12.0"
             arch: clang_64
+            exe: ""
+            lib_consumer: false
           - os: ubuntu-24.04
             qt: "6.12.0"
             arch: linux_gcc_64
+            exe: ""
+            lib_consumer: true
           - os: windows-2022
             qt: "6.12.0"
             arch: win64_msvc2022_64
+            exe: ".exe"
+            lib_consumer: false
           - os: ubuntu-24.04
             qt: "6.8.3"
             arch: linux_gcc_64
+            exe: ""
+            lib_consumer: false
     steps:
+      # Keep LF endings on Windows: the tests compare fixture bytes.
+      - name: Disable CRLF conversion
+        shell: bash
+        run: git config --global core.autocrlf false
+
       - name: Checkout
         uses: actions/checkout@v4
+
+      # Paths are passed to go, CMake and ctest in forward-slash form, which
+      # all three accept on Windows too.
+      - name: Resolve paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          temp="$RUNNER_TEMP"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            temp="$(cygpath -m "$temp")"
+          fi
+          echo "CYSEC_ENGINE=$temp/engine/cysec-scanner${{ matrix.exe }}" >> "$GITHUB_ENV"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          check-latest: true
 
       - name: Install Qt ${{ matrix.qt }} (${{ matrix.arch }})
         uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4.4.1
@@ -59,20 +100,136 @@ jobs:
           aqtsource: "git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7"
           cache: true
 
-      - name: Print toolchain versions
+      - name: Resolve the Qt prefix
         shell: bash
         run: |
           set -euo pipefail
-          if command -v qtpaths >/dev/null 2>&1; then
-            echo "QT_VERSION=$(qtpaths --qt-version)"
-          else
-            echo "QT_VERSION=$(qmake -query QT_VERSION)"
+          prefix="$QT_ROOT_DIR"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            prefix="$(cygpath -m "$prefix")"
           fi
-          cmake --version
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            lupdate -version
-          fi
+          echo "CYSEC_QT_PREFIX=$prefix" >> "$GITHUB_ENV"
+
+      # RESEARCH assumption A2 / Pitfall 15: GL and xkbcommon headers and
+      # libraries for configure and the offscreen platform.
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build libgl1-mesa-dev libegl1 libxkbcommon0 libxkbcommon-x11-0
+
+      - name: Install Ninja (macOS)
+        if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: brew install ninja
+
+      - name: Build the engine
+        shell: bash
+        env:
+          CGO_ENABLED: "0"
+          GOWORK: "off"
+        run: go build -trimpath -o "$CYSEC_ENGINE" ./cmd/cysec-scanner
+
+      - name: Configure (Ninja)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cmake -S gui -B gui/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$CYSEC_QT_PREFIX"
+
+      - name: Configure (Visual Studio 17 2022)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cmake -S gui -B gui/build -G "Visual Studio 17 2022" -A x64 \
+            -DCMAKE_PREFIX_PATH="$CYSEC_QT_PREFIX"
+
+      - name: Build
+        shell: bash
+        run: cmake --build gui/build --config Release --parallel
+
+      - name: qmllint
+        shell: bash
+        run: cmake --build gui/build --config Release --target all_qmllint
+
+      - name: Test (offscreen, real engine)
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          export CYSEC_SCANNER_BIN="$CYSEC_ENGINE"
+          ctest --test-dir gui/build -C Release --output-on-failure
+
+      - name: Library-only consumer build (SGUI-01)
+        if: matrix.lib_consumer
+        shell: bash
+        run: |
+          cmake -S gui -B gui/build-lib -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$CYSEC_QT_PREFIX" \
+            -DCYSEC_GUI_BUILD_APP=OFF -DCYSEC_GUI_BUILD_TESTS=OFF
+          cmake --build gui/build-lib --parallel
 
       - name: Sentinel
         shell: bash
-        run: echo "QT_INSTALL_OK"
+        run: echo "GUI_BUILD_TEST_OK"
+
+  # Gate G2 — translation catalogue in sync and complete (I18N-01, T-13-66).
+  # update_translations re-extracts every qsTr string with -locations none, so
+  # any source change that is not reflected in gui/i18n shows up as a diff.
+  # check_ts_complete.py (stdlib, Qt-version independent) then fails on any
+  # unfinished, empty, obsolete or placeholder-mismatched entry; Qt 6.8
+  # lrelease has no -fail-on-unfinished, so the gate does not rely on it.
+  i18n:
+    name: i18n catalogue sync + completeness
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Qt 6.12.0 (linux_gcc_64)
+        uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4.4.1
+        with:
+          version: "6.12.0"
+          arch: linux_gcc_64
+          # aqtinstall master 076e1659807d0b362a3ed684d54c2e9c775eb9c7 (2026-09-11),
+          # contains PR #1000 (8c3695d4, Qt 6.11+ Windows repository layout).
+          aqtsource: "git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7"
+          cache: true
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build libgl1-mesa-dev libegl1 libxkbcommon0 libxkbcommon-x11-0
+
+      - name: Configure
+        run: cmake -S gui -B gui/build -G Ninja -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR"
+
+      - name: Re-extract the catalogue
+        run: cmake --build gui/build --target update_translations
+
+      - name: Catalogue matches the sources
+        run: git diff --exit-code gui/i18n
+
+      - name: Every entry is translated
+        run: python3 gui/tools/check_ts_complete.py gui/i18n/*.ts
+
+  # Gate G3 — SGUI-06 vocabulary + plain-text rendering (T-13-64, T-13-65).
+  # The gate tests run first so a broken gate cannot pass vacuously. No Qt
+  # needed: the scripts are stdlib Python.
+  vocabulary:
+    name: SGUI-06 vocabulary + plain-text gate
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Gate self-tests
+        run: python3 -m unittest gui/tools/test_gates.py -v
+
+      - name: Vocabulary and plain-text rules
+        run: python3 gui/tools/check_vocabulary.py gui --plaintext
