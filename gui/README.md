@@ -52,6 +52,31 @@ CYSEC_SCANNER_BIN="$PWD/gui/build/cysec-scanner" \
 # Linux: gui/build/app/cysec-scanner-gui   Windows: gui\build\app\cysec-scanner-gui.exe
 ```
 
+### macOS: Local Network privacy
+
+macOS decides per app whether it may reach other hosts on the local network,
+and it charges the engine to the app that started it. Without that permission
+every host except the router and the Mac itself answers "no route to host",
+and a scan finds almost nothing. A scan run from Terminal is not affected,
+which is why the CLI and the app can disagree.
+
+The build therefore signs the bundle after linking, with the bundle identifier
+as the signing identifier (`cmake/macos-sign-bundle.cmake`), and the
+Info.plist explains the access. To ship the engine inside the bundle, which is
+how the app finds it without `CYSEC_SCANNER_BIN`, configure with:
+
+```sh
+cmake -S gui -B gui/build -DCYSEC_GUI_BUNDLE_ENGINE="$PWD/gui/build/cysec-scanner"
+```
+
+`CYSEC_GUI_CODESIGN_IDENTITY` defaults to `-` (ad-hoc). Set it to an Apple
+Development or Developer ID identity for the most reliable behaviour, or to
+an empty string to leave signing to a packaging step. Every relink changes
+the executable, so macOS can refuse the very first launch of a fresh build.
+If a scan straight after a rebuild finds only the router and this Mac, quit
+the app and start it again. The setting is under System Settings > Privacy &
+Security > Local Network.
+
 ## Test
 
 ```sh

@@ -1,0 +1,5 @@
+/* Copyright 2026 59k GmbH */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/* Shown by the macOS Local Network prompt. */
+"NSLocalNetworkUsageDescription" = "Cysec Scanner kontaktiert Geräte in den Netzwerken, die Sie scannen, um Hosts und ihre offenen Ports zu finden.";

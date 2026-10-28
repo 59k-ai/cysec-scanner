@@ -34,3 +34,33 @@ target_link_libraries(cysec-scanner-gui PRIVATE
 # bare name like the C++ tests do.
 target_include_directories(cysec-scanner-gui PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/Cysec/Scanner/Ui")
+
+# macOS: Local Network privacy (UAT 13 step 3). The scanner must reach other
+# hosts on the LAN, which macOS gates per app and attributes to the app that
+# spawned the engine. The bundle therefore explains the access in its
+# Info.plist and is signed as a bundle, with its CFBundleIdentifier as the
+# signing identifier, so the user's Allow decision actually matches it. The
+# linker's own ad-hoc signature does neither. See cmake/macos-sign-bundle.cmake.
+if(APPLE)
+    set(CYSEC_GUI_CODESIGN_IDENTITY "-" CACHE STRING
+        "codesign identity for the app bundle; '-' is ad-hoc, empty skips signing")
+    set(CYSEC_GUI_BUNDLE_ENGINE "" CACHE FILEPATH
+        "engine binary copied into the bundle as Contents/MacOS/cysec-scanner before signing")
+
+    set_target_properties(cysec-scanner-gui PROPERTIES
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/macos/Info.plist.in")
+    set(_cysec_de_strings "${CMAKE_CURRENT_SOURCE_DIR}/macos/de.lproj/InfoPlist.strings")
+    target_sources(cysec-scanner-gui PRIVATE "${_cysec_de_strings}")
+    set_source_files_properties("${_cysec_de_strings}" PROPERTIES
+        MACOSX_PACKAGE_LOCATION "Resources/de.lproj")
+
+    add_custom_command(TARGET cysec-scanner-gui POST_BUILD
+        COMMAND "${CMAKE_COMMAND}"
+            "-DBUNDLE=$<TARGET_BUNDLE_DIR:cysec-scanner-gui>"
+            "-DMAIN=$<TARGET_FILE_NAME:cysec-scanner-gui>"
+            "-DIDENTIFIER=$<TARGET_PROPERTY:cysec-scanner-gui,MACOSX_BUNDLE_GUI_IDENTIFIER>"
+            "-DIDENTITY=${CYSEC_GUI_CODESIGN_IDENTITY}"
+            "-DENGINE=${CYSEC_GUI_BUNDLE_ENGINE}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/../cmake/macos-sign-bundle.cmake"
+        VERBATIM)
+endif()
