@@ -22,6 +22,19 @@ qt_add_qml_module(cysec_scanner_ui
     SOURCES
         appearance.h
         appearance.cpp
+        scanevent.h
+        ndjsonparser.h
+        ndjsonparser.cpp
+        scanbackend.h
+        scanbackend.cpp
+        processscanbackend.h
+        processscanbackend.cpp
+        hostmodel.h
+        hostmodel.cpp
+        logmodel.h
+        logmodel.cpp
+        scansession.h
+        scansession.cpp
     RESOURCES
         fonts/IBMPlexSans-Regular.ttf
         fonts/IBMPlexSans-SemiBold.ttf
