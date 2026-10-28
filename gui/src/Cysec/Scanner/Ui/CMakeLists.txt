@@ -14,6 +14,11 @@ qt_add_qml_module(cysec_scanner_ui
     QML_FILES
         Theme.qml
         PlainLabel.qml
+        PrimaryButton.qml
+        SecondaryButton.qml
+        DestructiveButton.qml
+        StatusBadge.qml
+        LabeledField.qml
     SOURCES
         appearance.h
         appearance.cpp

@@ -9,6 +9,9 @@ TestCase {
     id: testCase
     name: "Theme"
     when: windowShown
+    // TestCase is invisible by default; children must be visible to take
+    // Tab focus and to report visible icons.
+    visible: true
     width: 400
     height: 300
 
@@ -29,9 +32,9 @@ TestCase {
         ["ink", "surface"], ["ink", "surfaceMuted"], ["ink", "zebra"],
         ["muted", "surface"], ["muted", "surfaceMuted"],
         ["subtle", "surface"], ["subtle", "surfaceMuted"],
-        ["onAccent", "accent"], ["accent", "surface"],
+        ["textOnAccent", "accent"], ["accent", "surface"],
         ["warningText", "warningFill"], ["errorText", "errorFill"], ["infoText", "infoFill"],
-        ["ink", "accentTint"], ["onError", "errorEdge"]
+        ["ink", "accentTint"], ["textOnError", "errorEdge"]
     ]
     readonly property var nonTextPairs: [
         ["borderStrong", "surface"], ["borderStrong", "surfaceMuted"],
@@ -86,7 +89,11 @@ TestCase {
     }
 
     // Host data is shown in neutral greys only: the text colours must stay
-    // unsaturated and never coincide with an accent or status colour.
+    // low-chroma (max - min RGB channel) and never coincide with an accent or
+    // status colour.
+    function chroma(col) {
+        return Math.max(col.r, col.g, col.b) - Math.min(col.r, col.g, col.b)
+    }
     function test_neutralTextColours_data() {
         return [
             { tag: "light", scheme: Appearance.Light },
@@ -99,8 +106,7 @@ TestCase {
         const signal = ["accent", "warningText", "warningEdge", "errorText", "errorEdge",
                         "infoText", "infoEdge"]
         for (const n of ["ink", "muted", "subtle"]) {
-            verify(Theme[n].hslSaturation < 0.35,
-                   n + " saturation " + Theme[n].hslSaturation.toFixed(2))
+            verify(chroma(Theme[n]) < 0.2, n + " chroma " + chroma(Theme[n]).toFixed(2))
             for (const s of signal)
                 verify(!Qt.colorEqual(Theme[n], Theme[s]), n + " equals " + s)
         }

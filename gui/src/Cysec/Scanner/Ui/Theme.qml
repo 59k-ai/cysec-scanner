@@ -18,6 +18,8 @@ QtObject {
     readonly property real fontScale: Appearance.fontScale
 
     // ---- Colour -----------------------------------------------------------
+    // Foreground-on-fill colours are named textOn*: a QML property called
+    // on<Upper>... is parsed as a signal handler, not a property.
     readonly property color surface:      dark ? "#0f172a" : "#ffffff"
     readonly property color surfaceMuted: dark ? "#1e293b" : "#f8fafc"
     readonly property color zebra:        dark ? "#172033" : "#fafafa"
@@ -34,7 +36,7 @@ QtObject {
     // edge, focus ring, About links, checked checkboxes. Nothing else.
     readonly property color accent:     dark ? "#34d399" : "#047857"
     readonly property color accentTint: dark ? "#0b3b2e" : "#ecfdf5"
-    readonly property color onAccent:   dark ? "#0f172a" : "#ffffff"
+    readonly property color textOnAccent: dark ? "#0f172a" : "#ffffff"
 
     readonly property color warningFill: dark ? "#3b2a0a" : "#fef3c7"
     readonly property color warningText: dark ? "#fcd34d" : "#92400e"
@@ -44,7 +46,7 @@ QtObject {
     readonly property color errorText: dark ? "#fda4af" : "#9f1239"
     readonly property color errorEdge: dark ? "#fb7185" : "#9f1239"
     // Text on a filled errorEdge background (destructive button).
-    readonly property color onError:   dark ? "#0f172a" : "#ffffff"
+    readonly property color textOnError: dark ? "#0f172a" : "#ffffff"
 
     readonly property color infoFill: dark ? "#0c2a40" : "#e0f2fe"
     readonly property color infoText: dark ? "#7dd3fc" : "#075985"
