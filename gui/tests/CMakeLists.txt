@@ -42,7 +42,7 @@ function(cysec_gui_cpp_test name)
 endfunction()
 
 foreach(_cysec_test IN ITEMS
-        ndjsonparser processbackend hostmodel logmodel validators
+        ndjsonparser processbackend hostmodel logmodel validators formatter
         exporter engineinfo language session real_engine)
     cysec_gui_cpp_test(${_cysec_test})
 endforeach()
