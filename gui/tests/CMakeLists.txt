@@ -50,6 +50,18 @@ foreach(_cysec_test IN ITEMS
     cysec_gui_cpp_test(${_cysec_test})
 endforeach()
 
+# macOS: the app bundle must be signed so Local Network privacy can match the
+# user's decision (UAT 13 step 3). Only meaningful when the app is built.
+if(APPLE AND TARGET cysec-scanner-gui)
+    cysec_gui_cpp_test(macbundle)
+    if(TARGET tst_macbundle)
+        target_compile_definitions(tst_macbundle PRIVATE
+            CYSEC_GUI_BUNDLE_DIR="$<TARGET_BUNDLE_DIR:cysec-scanner-gui>"
+            CYSEC_GUI_BUNDLE_ID="$<TARGET_PROPERTY:cysec-scanner-gui,MACOSX_BUNDLE_GUI_IDENTIFIER>")
+        add_dependencies(tst_macbundle cysec-scanner-gui)
+    endif()
+endif()
+
 # tst_language builds a one-string catalogue at runtime to prove the
 # translator swap without depending on the shipped .ts content.
 if(TARGET tst_language AND TARGET Qt6::lrelease)

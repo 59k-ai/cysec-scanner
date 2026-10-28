@@ -229,6 +229,7 @@ private slots:
 
     // Session + real transport against cysec-fake-engine.
     void integrationCompleted();
+    void integrationRealLanCapture();
     void integrationCooperativeStop();
     void integrationStubbornKill();
     void integrationCsvExportFromLiveHosts();
@@ -711,6 +712,59 @@ void TstSession::integrationCompleted()
              (QStringList{QStringLiteral("192.0.2.0/24"), QStringLiteral("198.51.100.7/32")}));
     QCOMPARE(s.log()->warningCount(), 1);
     QCOMPARE(s.failure(), ScanSession::NoFailure);
+}
+
+void TstSession::integrationRealLanCapture()
+{
+    // A real /24 LAN scan, captured from the engine's detailed stream and
+    // payload (addresses moved to 192.0.2.0/24, names neutralised). It has
+    // the engine's real shape: discovery facts with an empty external_id
+    // first, then "ip:" re-keyed facts with names, services and OS guesses,
+    // and a payload with classification_evidence, null fields and
+    // network_aliases. Every host and every name must survive the live
+    // stream and the final reconcile (UAT 13 step 3 baseline).
+    setEnv("FAKE_ENGINE_FIXTURE", fixture("ndjson-lan-real.ndjson"));
+    setEnv("FAKE_ENGINE_PAYLOAD", fixture("payload-lan-real.json"));
+    ProcessScanBackend backend;
+    backend.setEnginePath(QStringLiteral(CYSEC_FAKE_ENGINE_PATH));
+    ScanSession s;
+    s.setBackend(&backend);
+    QSignalSpy hostEvents(&backend, &ScanBackend::eventReceived);
+    QSignalSpy reconciled(&s, &ScanSession::reconciled);
+
+    s.start({QStringLiteral("192.0.2.0/24")}, QString(), false);
+    QTRY_COMPARE_WITH_TIMEOUT(s.state(), ScanSession::Completed, 5000);
+
+    int hosts = 0;
+    for (const QList<QVariant> &args : std::as_const(hostEvents)) {
+        if (args.at(0).value<ScanEvent>().kind == ScanEventKind::Host)
+            ++hosts;
+    }
+    QCOMPARE(hosts, 19);
+    QCOMPARE(reconciled.count(), 1);
+    QVERIFY(s.hasPayload());
+    QCOMPARE(payloadAssetCount("payload-lan-real.json"), 5);
+    QCOMPARE(s.hostsFound(), 5);
+    QCOMPARE(s.hosts()->count(), 5);
+
+    QHash<QString, QVariantMap> byIp;
+    for (int i = 0; i < s.hosts()->count(); ++i) {
+        const QVariantMap h = s.hosts()->hostAt(i);
+        byIp.insert(h.value(QStringLiteral("ip")).toString(), h);
+    }
+    QCOMPARE(byIp.size(), 5);
+    QCOMPARE(byIp.value(QStringLiteral("192.0.2.2")).value(QStringLiteral("hostname")).toString(),
+             QStringLiteral("host-a.local"));
+    QCOMPARE(byIp.value(QStringLiteral("192.0.2.14")).value(QStringLiteral("hostname")).toString(),
+             QStringLiteral("host-n.local"));
+    const QVariantMap self = byIp.value(QStringLiteral("192.0.2.3"));
+    QCOMPARE(self.value(QStringLiteral("hostname")).toString(), QStringLiteral("host-c.local"));
+    QCOMPARE(self.value(QStringLiteral("osGuess")).toString(), QStringLiteral("Linux / Unix"));
+    QCOMPARE(self.value(QStringLiteral("ports")).toString(), QStringLiteral("22, 7000"));
+    QCOMPARE(byIp.value(QStringLiteral("192.0.2.1")).value(QStringLiteral("ports")).toString(),
+             QStringLiteral("53, 80, 139 +1"));
+    QCOMPARE(byIp.value(QStringLiteral("192.0.2.15")).value(QStringLiteral("ports")).toString(),
+             QStringLiteral("23"));
 }
 
 void TstSession::integrationCooperativeStop()

@@ -1,0 +1,308 @@
+{
+  "schema_version": 7,
+  "payload_type": "full",
+  "collector_version": "cysec-scanner-engine/0.0.0",
+  "assets": [
+    {
+      "external_id": "ip:192.0.2.1",
+      "hostname": "",
+      "fqdn": "",
+      "ip_address": "192.0.2.1",
+      "operating_system": "",
+      "os_fingerprint_hint": "linux",
+      "asset_type": "unknown",
+      "managed": false,
+      "internet_facing": false,
+      "services": [
+        {
+          "port": 53,
+          "protocol": "tcp",
+          "service_name": "dns",
+          "exposure_level": "internal",
+          "tls_version": "",
+          "service_version": null,
+          "product": null,
+          "cpe": null,
+          "service_identity_source": null,
+          "service_identity_confidence": null
+        },
+        {
+          "port": 80,
+          "protocol": "tcp",
+          "service_name": "http",
+          "exposure_level": "internal",
+          "tls_version": "",
+          "service_version": null,
+          "product": null,
+          "cpe": null,
+          "service_identity_source": null,
+          "service_identity_confidence": null
+        },
+        {
+          "port": 139,
+          "protocol": "tcp",
+          "service_name": "netbios-ssn",
+          "exposure_level": "internal",
+          "tls_version": "",
+          "service_version": null,
+          "product": null,
+          "cpe": null,
+          "service_identity_source": null,
+          "service_identity_confidence": null
+        },
+        {
+          "port": 445,
+          "protocol": "tcp",
+          "service_name": "smb",
+          "exposure_level": "internal",
+          "tls_version": "",
+          "service_version": null,
+          "product": null,
+          "cpe": null,
+          "service_identity_source": null,
+          "service_identity_confidence": null
+        }
+      ],
+      "classification_evidence": {
+        "asset_type": "unknown",
+        "confidence": 0,
+        "rule_name": "port-no-match",
+        "evidence": {
+          "asset_type_confidence": "0",
+          "asset_type_source": "port-banner-v1",
+          "fingerprint": "linux",
+          "os_ttl_family": "linux",
+          "port_signature": "53,80,139,445"
+        },
+        "security_flags": [
+          "80:http-no-tls:info"
+        ]
+      },
+      "network_aliases": [],
+      "mac_address": null,
+      "mac_vendor": null,
+      "os_guess": null,
+      "os_guess_source": null,
+      "os_guess_confidence": null
+    },
+    {
+      "external_id": "ip:192.0.2.14",
+      "hostname": "host-n.local",
+      "fqdn": "host-n.local",
+      "ip_address": "192.0.2.14",
+      "operating_system": "",
+      "os_fingerprint_hint": "linux",
+      "asset_type": "unknown",
+      "managed": false,
+      "internet_facing": false,
+      "services": [
+        {
+          "port": 21,
+          "protocol": "tcp",
+          "service_name": "ftp",
+          "exposure_level": "internal",
+          "tls_version": "",
+          "service_version": null,
+          "product": "Pure-FTPd",
+          "cpe": "cpe:/a:pureftpd:pure-ftpd:-",
+          "service_identity_source": "recog-v1",
+          "service_identity_confidence": 0.9
+        },
+        {
+          "port": 80,
+          "protocol": "tcp",
+          "service_name": "http",
+          "exposure_level": "internal",
+          "tls_version": "",
+          "service_version": null,
+          "product": null,
+          "cpe": null,
+          "service_identity_source": null,
+          "service_identity_confidence": null
+        },
+        {
+          "port": 443,
+          "protocol": "tcp",
+          "service_name": "https",
+          "exposure_level": "internal",
+          "tls_version": "TLS 1.3",
+          "service_version": null,
+          "product": null,
+          "cpe": null,
+          "service_identity_source": null,
+          "service_identity_confidence": null
+        }
+      ],
+      "classification_evidence": {
+        "asset_type": "unknown",
+        "confidence": 0,
+        "rule_name": "port-no-match",
+        "evidence": {
+          "asset_type_confidence": "0",
+          "asset_type_source": "port-banner-v1",
+          "fingerprint": "linux",
+          "mdns": "present",
+          "os_ttl_family": "linux",
+          "port_signature": "21,80,443"
+        },
+        "security_flags": [
+          "21:cleartext-ftp:medium"
+        ]
+      },
+      "network_aliases": [],
+      "mac_address": null,
+      "mac_vendor": null,
+      "os_guess": null,
+      "os_guess_source": null,
+      "os_guess_confidence": null
+    },
+    {
+      "external_id": "ip:192.0.2.15",
+      "hostname": "",
+      "fqdn": "",
+      "ip_address": "192.0.2.15",
+      "operating_system": "",
+      "os_fingerprint_hint": "network-device",
+      "asset_type": "unknown",
+      "managed": false,
+      "internet_facing": false,
+      "services": [
+        {
+          "port": 23,
+          "protocol": "tcp",
+          "service_name": "telnet",
+          "exposure_level": "internal",
+          "tls_version": "",
+          "service_version": null,
+          "product": null,
+          "cpe": null,
+          "service_identity_source": null,
+          "service_identity_confidence": null
+        }
+      ],
+      "classification_evidence": {
+        "asset_type": "unknown",
+        "confidence": 0,
+        "rule_name": "port-no-match",
+        "evidence": {
+          "asset_type_confidence": "0",
+          "asset_type_source": "port-banner-v1",
+          "fingerprint": "network-device",
+          "os_ttl_family": "network-device",
+          "port_signature": "23"
+        },
+        "security_flags": [
+          "23:cleartext-management:high"
+        ]
+      },
+      "network_aliases": [],
+      "mac_address": null,
+      "mac_vendor": null,
+      "os_guess": null,
+      "os_guess_source": null,
+      "os_guess_confidence": null
+    },
+    {
+      "external_id": "ip:192.0.2.2",
+      "hostname": "host-a.local",
+      "fqdn": "host-a.local",
+      "ip_address": "192.0.2.2",
+      "operating_system": "",
+      "os_fingerprint_hint": "linux",
+      "asset_type": "unknown",
+      "managed": false,
+      "internet_facing": false,
+      "services": [],
+      "classification_evidence": {
+        "asset_type": "unknown",
+        "confidence": 0.1,
+        "rule_name": "discovery-evidence-v1",
+        "evidence": {
+          "mdns": "present",
+          "os_ttl_family": "linux"
+        },
+        "security_flags": []
+      },
+      "network_aliases": [],
+      "mac_address": null,
+      "mac_vendor": null,
+      "os_guess": null,
+      "os_guess_source": null,
+      "os_guess_confidence": null
+    },
+    {
+      "external_id": "ip:192.0.2.3",
+      "hostname": "host-c.local",
+      "fqdn": "host-c.local",
+      "ip_address": "192.0.2.3",
+      "operating_system": "",
+      "os_fingerprint_hint": "linux",
+      "asset_type": "workstation",
+      "managed": false,
+      "internet_facing": false,
+      "services": [
+        {
+          "port": 22,
+          "protocol": "tcp",
+          "service_name": "ssh",
+          "exposure_level": "internal",
+          "tls_version": "",
+          "service_version": "10.3",
+          "product": "OpenSSH",
+          "cpe": "cpe:/a:openbsd:openssh:10.3",
+          "service_identity_source": "recog-v1",
+          "service_identity_confidence": 0.9
+        },
+        {
+          "port": 7000,
+          "protocol": "tcp",
+          "service_name": "rtsp-alt",
+          "exposure_level": "internal",
+          "tls_version": "",
+          "service_version": null,
+          "product": null,
+          "cpe": null,
+          "service_identity_source": null,
+          "service_identity_confidence": null
+        }
+      ],
+      "classification_evidence": {
+        "asset_type": "workstation",
+        "confidence": 0.6,
+        "rule_name": "fp-workstation-linux",
+        "evidence": {
+          "asset_type_confidence": "0.6",
+          "asset_type_source": "port-banner-v1",
+          "banner_os_cue": "linux",
+          "fingerprint": "linux linux",
+          "mdns": "present",
+          "os_ttl_family": "linux",
+          "port_signature": "22,7000",
+          "service_identity_confidence:22": "low",
+          "service_identity_source:22": "port-banner-v1"
+        },
+        "security_flags": []
+      },
+      "network_aliases": [],
+      "mac_address": null,
+      "mac_vendor": null,
+      "os_guess": "Linux / Unix",
+      "os_guess_source": "osfp-banner-v1",
+      "os_guess_confidence": 0.8
+    }
+  ],
+  "identities": [],
+  "service_exposures": [],
+  "vulnerabilities": [],
+  "configuration_checks": [],
+  "password_policies": [],
+  "software_inventory": [],
+  "missing_kbs": [],
+  "tls_probes": [],
+  "payload_id_hash": null,
+  "scan_metadata": {
+    "recog_db_version": "cf937c078dfe321c01c60aaf387ccd3dea6d1b63",
+    "os_signature_db_version": "osfp-v1-2026-10-19"
+  },
+  "scan_status": null
+}
