@@ -4,12 +4,14 @@
 #pragma once
 
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QVariantList>
 #include <QtQml/qqmlregistration.h>
 
 class QJSEngine;
 class QQmlEngine;
+class QTranslator;
 
 // LanguageController switches the UI language at runtime (English, German).
 // It installs the translator and retranslates the QML engine; revision
@@ -39,11 +41,21 @@ public:
 
     Q_INVOKABLE void setLanguage(const QString &code);
 
+    // Directory the cysec_scanner_ui_<lang>.qm catalogues load from
+    // (":/i18n" by default). Added by plan 13-13 as a test hook; takes effect
+    // on the next language switch.
+    void setTranslationDirectory(const QString &dir);
+
 signals:
     void languageChanged();
 
 private:
-    QQmlEngine *m_engine = nullptr;
+    void apply(const QString &code);
+    bool isSupported(const QString &code) const;
+
+    QPointer<QQmlEngine> m_engine;
+    QTranslator *m_translator = nullptr;
+    QString m_translationDir = QStringLiteral(":/i18n");
     QString m_language = QStringLiteral("en");
     int m_revision = 0;
 };

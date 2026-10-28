@@ -265,5 +265,8 @@ TestCase {
         // reports, the check marks follow it rather than the click.
         compare(other.checked, other.text === (LanguageController.language === "en" ? "English"
                                                                                     : "Deutsch"))
+        // The switch is real since 13-13; later cases expect the start language.
+        LanguageController.setLanguage(current)
+        compare(LanguageController.language, current)
     }
 }

@@ -4,10 +4,13 @@
 #include "hostmodel.h"
 #include "logmodel.h"
 
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QObject>
 #include <QQmlContext>
 #include <QQmlEngine>
+#include <QSettings>
+#include <QTemporaryDir>
 #include <QVariantList>
 #include <QVariantMap>
 #include <QtQuickTest>
@@ -66,6 +69,14 @@ public:
         }
     }
 
+    // Puts the persisted preferences back to the test baseline (English).
+    Q_INVOKABLE void resetSettings()
+    {
+        QSettings settings;
+        settings.clear();
+        settings.setValue(QStringLiteral("ui/language"), QStringLiteral("en"));
+    }
+
     Q_INVOKABLE QDateTime logTimeAt(int index) const
     {
         return QDateTime(QDate(2026, 10, 28), QTime(14, 5, 0)).addSecs(index);
@@ -114,9 +125,21 @@ public:
 public slots:
     void qmlEngineAvailable(QQmlEngine *engine)
     {
+        // LanguageController persists to QSettings: keep the user's real
+        // preferences untouched and start every test file in English, so
+        // locale-formatted expectations do not depend on the host locale.
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_settingsDir.path());
+        QCoreApplication::setOrganizationName(QStringLiteral("cysec-test"));
+        QCoreApplication::setApplicationName(QStringLiteral("tst_ui"));
+        auto *data = new TestData(engine);
+        data->resetSettings();
         engine->rootContext()->setContextProperty(QStringLiteral("TestData"),
-                                                  new TestData(engine));
+                                                  data);
     }
+
+private:
+    QTemporaryDir m_settingsDir;
 };
 
 QUICK_TEST_MAIN_WITH_SETUP(ui, Setup)

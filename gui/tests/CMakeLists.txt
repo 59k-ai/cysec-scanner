@@ -48,3 +48,10 @@ foreach(_cysec_test IN ITEMS
         exporter engineinfo language session real_engine)
     cysec_gui_cpp_test(${_cysec_test})
 endforeach()
+
+# tst_language builds a one-string catalogue at runtime to prove the
+# translator swap without depending on the shipped .ts content.
+if(TARGET tst_language AND TARGET Qt6::lrelease)
+    target_compile_definitions(tst_language PRIVATE
+        CYSEC_LRELEASE_PATH="$<TARGET_FILE:Qt6::lrelease>")
+endif()

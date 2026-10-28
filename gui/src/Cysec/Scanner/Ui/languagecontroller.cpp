@@ -46,3 +46,8 @@ void LanguageController::setLanguage(const QString &code)
 {
     Q_UNUSED(code);
 }
+
+void LanguageController::setTranslationDirectory(const QString &dir)
+{
+    Q_UNUSED(dir);
+}
