@@ -13,7 +13,9 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/fakeengine/CMakeLists.txt")
 endif()
 
 qt_add_executable(tst_ui tst_main.cpp)
-target_link_libraries(tst_ui PRIVATE Qt6::QuickTest Qt6::Quick cysec_scanner_uiplugin)
+target_link_libraries(tst_ui PRIVATE Qt6::QuickTest Qt6::Quick cysec_scanner_uiplugin cysec_scanner_ui)
+# tst_main.cpp builds HostModel/LogModel fixtures for the QML tests.
+target_include_directories(tst_ui PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src/Cysec/Scanner/Ui")
 target_compile_definitions(tst_ui PRIVATE
     QUICK_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
 set_target_properties(tst_ui PROPERTIES MACOSX_BUNDLE OFF WIN32_EXECUTABLE OFF)
