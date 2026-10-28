@@ -48,6 +48,14 @@ type ifaceView struct {
 	addrs []*net.IPNet
 }
 
+// LANNetwork is one local LAN network together with the interface it was
+// found on. It is the shape the CLI's --describe document reports (SGUI-02), so
+// a GUI can label each auto-detected subnet with its interface name.
+type LANNetwork struct {
+	Interface string `json:"interface"`
+	CIDR      string `json:"cidr"`
+}
+
 // LocalLANNetworks enumerates the real LAN networks attached to this host for
 // use as the default sweep scope when no explicit --cidr is given. It excludes
 // loopback, down, point-to-point and overlay/virtual interfaces, and
@@ -55,9 +63,41 @@ type ifaceView struct {
 // "192.168.1.0/24") of each remaining address. On enumeration failure or an
 // empty result it returns a best-effort single-/24 fallback.
 func LocalLANNetworks() []string {
-	real, err := net.Interfaces()
+	views, err := hostIfaceViews()
 	if err != nil {
 		return fallbackNetworks()
+	}
+	out := localLANNetworksFrom(views)
+	if len(out) == 0 {
+		return fallbackNetworks()
+	}
+	return out
+}
+
+// LocalLANInterfaces is LocalLANNetworks with the interface name kept per
+// network. It applies the same exclusion rules and the same fallback; fallback
+// entries carry an empty Interface because the route lookup names no link.
+func LocalLANInterfaces() []LANNetwork {
+	views, err := hostIfaceViews()
+	var out []LANNetwork
+	if err == nil {
+		out = localLANInterfacesFrom(views)
+	}
+	if len(out) == 0 {
+		fb := fallbackNetworks()
+		out = make([]LANNetwork, 0, len(fb))
+		for _, c := range fb {
+			out = append(out, LANNetwork{CIDR: c})
+		}
+	}
+	return out
+}
+
+// hostIfaceViews reads the host's real interfaces into the injectable shape.
+func hostIfaceViews() ([]ifaceView, error) {
+	real, err := net.Interfaces()
+	if err != nil {
+		return nil, err
 	}
 	views := make([]ifaceView, 0, len(real))
 	for _, ifc := range real {
@@ -70,18 +110,16 @@ func LocalLANNetworks() []string {
 		}
 		views = append(views, ifaceView{name: ifc.Name, flags: ifc.Flags, addrs: nets})
 	}
-	out := localLANNetworksFrom(views)
-	if len(out) == 0 {
-		return fallbackNetworks()
-	}
-	return out
+	return views, nil
 }
 
-// localLANNetworksFrom is the pure core of LocalLANNetworks over an injectable
-// interface list, so the exclusion rules can be tested deterministically.
-func localLANNetworksFrom(views []ifaceView) []string {
-	seen := map[string]struct{}{}
-	var out []string
+// localLANInterfacesFrom is the pure core of LocalLANInterfaces over an
+// injectable interface list, so the exclusion rules can be tested
+// deterministically. The result is sorted by CIDR, then interface name, and
+// de-duplicated on the (interface, CIDR) pair.
+func localLANInterfacesFrom(views []ifaceView) []LANNetwork {
+	seen := map[LANNetwork]struct{}{}
+	var out []LANNetwork
 	for _, v := range views {
 		if v.flags&net.FlagLoopback != 0 || v.flags&net.FlagUp == 0 {
 			continue
@@ -101,15 +139,35 @@ func localLANNetworksFrom(views []ifaceView) []string {
 				continue
 			}
 			network := &net.IPNet{IP: ip4.Mask(ipnet.Mask), Mask: ipnet.Mask}
-			s := network.String()
-			if _, dup := seen[s]; dup {
+			n := LANNetwork{Interface: v.name, CIDR: network.String()}
+			if _, dup := seen[n]; dup {
 				continue
 			}
-			seen[s] = struct{}{}
-			out = append(out, s)
+			seen[n] = struct{}{}
+			out = append(out, n)
 		}
 	}
-	sort.Strings(out)
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CIDR != out[j].CIDR {
+			return out[i].CIDR < out[j].CIDR
+		}
+		return out[i].Interface < out[j].Interface
+	})
+	return out
+}
+
+// localLANNetworksFrom projects localLANInterfacesFrom onto its unique CIDRs,
+// in the same lexical order LocalLANNetworks has always returned.
+func localLANNetworksFrom(views []ifaceView) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, n := range localLANInterfacesFrom(views) {
+		if _, dup := seen[n.CIDR]; dup {
+			continue
+		}
+		seen[n.CIDR] = struct{}{}
+		out = append(out, n.CIDR)
+	}
 	return out
 }
 
