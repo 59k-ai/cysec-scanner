@@ -50,7 +50,7 @@ signals:
     void languageChanged();
 
 private:
-    void apply(const QString &code);
+    void apply(const QString &code, bool persist);
     bool isSupported(const QString &code) const;
 
     QPointer<QQmlEngine> m_engine;
