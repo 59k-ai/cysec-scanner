@@ -7,10 +7,13 @@
 #include "logmodel.h"
 #include "scanbackend.h"
 
+#include <QElapsedTimer>
 #include <QObject>
 #include <QString>
 #include <QStringList>
 #include <QtQml/qqmlregistration.h>
+
+class QTimer;
 
 // ScanSession is the single object QML drives a scan through. It owns the
 // host and log models, folds backend events into stage progress, and keeps
@@ -141,4 +144,28 @@ private:
 
     bool m_resultsExported = false;
     QStringList m_scope;
+
+    // Plan 13-15 additions (private only; the public contract is unchanged).
+    void onEvent(const ScanEvent &event);
+    void onFinished(ScanBackend::EndStatus status, int exitCode, const QString &payloadPath);
+    void onFailedToStart(ScanBackend::StartError error);
+    void setState(State state);
+    void setProgress(int index, const QString &stage, int done, int total);
+    void setCapabilities(bool known, bool unprivilegedIcmp);
+    void setFailure(Failure failure, int exitCode, const QString &detail);
+    void setPayload(const QString &path, bool has);
+    void setScope(const QStringList &scope);
+    void updateHostsFound();
+    void updateElapsed();
+    void updateExportState();
+    void resetResults();
+    bool isActive() const;
+    QString lastDiagnostic() const;
+
+    QElapsedTimer m_elapsed;
+    QTimer *m_tick = nullptr;
+    bool m_partial = false;
+    bool m_hasPayload = false;
+    bool m_unexportedCache = false;
+    QString m_scanEndStatus; // from scan_end; used when the exit status is ambiguous
 };
