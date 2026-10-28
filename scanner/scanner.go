@@ -105,8 +105,14 @@ type namedStage struct {
 // non-nil) is invoked; the sink is a pure serializer. Sequencing is
 // mutex-guarded (D-26): stamping and delivery happen under one lock, so the
 // sink is never called concurrently even when stages report from many
-// goroutines. Detailed kinds are opt-in via Config.DetailedEvents (D-05). The
-// signature is locked.
+// goroutines. Detailed kinds are opt-in via Config.DetailedEvents (D-05).
+//
+// Cancellation (D-06 as amended by D-25): when ctx is cancelled or its deadline
+// passes, Run returns the partial accumulated, Normalize()d payload marked
+// scan_status "cancelled" TOGETHER with the context error, so callers that check
+// err first (and exit non-zero) are unaffected while callers that want partial
+// results can keep them. Any other stage error returns the zero payload and the
+// error; a completed run leaves scan_status null. The signature is locked.
 func Run(ctx context.Context, cfg Config, sink ProgressSink) (payload.Payload, error) {
 	caps := capabilities.Detect()
 	st := scanstate.New(fullPayloadType, collectorVersion)
@@ -189,6 +195,12 @@ func Run(ctx context.Context, cfg Config, sink ProgressSink) (payload.Payload, e
 		em.scanEnd(status, errText, len(st.Assets()))
 	}
 	if runErr != nil {
+		if isCancel(runErr) {
+			st.SetScanStatus(payload.ScanStatusCancelled)
+			pl := st.Payload()
+			pl.Normalize()
+			return pl, runErr
+		}
 		return payload.Payload{}, runErr
 	}
 

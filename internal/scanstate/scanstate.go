@@ -256,6 +256,16 @@ func (s *ScanState) SetRecogDBVersion(version string) {
 	s.pl.ScanMetadata.RecogDBVersion = &v
 }
 
+// SetScanStatus records, under lock, the v7 top-level scan_status marker
+// (D-25). It mirrors SetRecogDBVersion: the value is copied and its pointer
+// assigned, so a nil marker (complete scan) stays distinct from a set one.
+func (s *ScanState) SetScanStatus(status string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v := status
+	s.pl.ScanStatus = &v
+}
+
 // SetOSSignatureDBVersion records, under lock, the pinned self-authored OS
 // signature database version for this run into the payload's scan_metadata block
 // (v6, FPRINT-04), allocating the block on first write. It mirrors
