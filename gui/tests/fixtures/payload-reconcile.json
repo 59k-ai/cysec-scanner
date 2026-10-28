@@ -1,0 +1,113 @@
+{
+  "schema_version": 7,
+  "payload_type": "full",
+  "collector_version": "engine/0.0.0",
+  "assets": [
+    {
+      "external_id": "mac:02:00:5e:10:00:10",
+      "hostname": "nas",
+      "fqdn": "",
+      "ip_address": "192.0.2.10",
+      "operating_system": "",
+      "os_fingerprint_hint": "",
+      "asset_type": "server",
+      "managed": false,
+      "internet_facing": false,
+      "services": [
+        {
+          "port": 22,
+          "protocol": "tcp",
+          "service_name": "ssh",
+          "exposure_level": "internal",
+          "tls_version": "",
+          "service_version": "9.6",
+          "product": "OpenSSH",
+          "cpe": null,
+          "service_identity_source": null,
+          "service_identity_confidence": null
+        },
+        {
+          "port": 445,
+          "protocol": "tcp",
+          "service_name": "microsoft-ds",
+          "exposure_level": "internal",
+          "tls_version": "",
+          "service_version": null,
+          "product": null,
+          "cpe": null,
+          "service_identity_source": null,
+          "service_identity_confidence": null
+        }
+      ],
+      "classification_evidence": null,
+      "network_aliases": [],
+      "mac_address": "02:00:5e:10:00:10",
+      "mac_vendor": "Example Storage Inc.",
+      "os_guess": "Linux 6.x",
+      "os_guess_source": "cysec-os-sig",
+      "os_guess_confidence": 0.82
+    },
+    {
+      "external_id": "ip:192.0.2.30",
+      "hostname": "printer",
+      "fqdn": "",
+      "ip_address": "192.0.2.30",
+      "operating_system": "",
+      "os_fingerprint_hint": "",
+      "asset_type": "printer",
+      "managed": false,
+      "internet_facing": false,
+      "services": [
+        {
+          "port": 9100,
+          "protocol": "tcp",
+          "service_name": "jetdirect",
+          "exposure_level": "internal",
+          "tls_version": "",
+          "service_version": null,
+          "product": null,
+          "cpe": null,
+          "service_identity_source": null,
+          "service_identity_confidence": null
+        }
+      ],
+      "classification_evidence": null,
+      "network_aliases": [],
+      "mac_address": null,
+      "mac_vendor": null,
+      "os_guess": null,
+      "os_guess_source": null,
+      "os_guess_confidence": null
+    },
+    {
+      "external_id": "mac:02:00:5e:10:00:99",
+      "hostname": "",
+      "fqdn": "",
+      "ip_address": null,
+      "operating_system": "",
+      "os_fingerprint_hint": "",
+      "asset_type": "unknown",
+      "managed": false,
+      "internet_facing": false,
+      "services": [],
+      "classification_evidence": null,
+      "network_aliases": [],
+      "mac_address": "02:00:5e:10:00:99",
+      "mac_vendor": null,
+      "os_guess": null,
+      "os_guess_source": null,
+      "os_guess_confidence": null
+    }
+  ],
+  "identities": [],
+  "service_exposures": [],
+  "vulnerabilities": [],
+  "configuration_checks": [],
+  "password_policies": [],
+  "software_inventory": [],
+  "missing_kbs": [],
+  "tls_probes": [],
+  "payload_id_hash": null,
+  "scan_metadata": null,
+  "scan_status": null
+}
