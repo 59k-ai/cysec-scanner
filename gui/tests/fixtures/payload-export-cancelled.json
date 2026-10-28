@@ -1,0 +1,96 @@
+{
+  "schema_version": 7,
+  "payload_type": "full",
+  "collector_version": "engine/0.0.0",
+  "assets": [
+    {
+      "external_id": "ip:192.0.2.10",
+      "hostname": "host-a",
+      "fqdn": "host-a.example.test",
+      "ip_address": "192.0.2.10",
+      "operating_system": "generic-os",
+      "os_fingerprint_hint": "",
+      "asset_type": "server",
+      "managed": true,
+      "internet_facing": true,
+      "services": [
+        {
+          "port": 443,
+          "protocol": "tcp",
+          "service_name": "https",
+          "exposure_level": "internet",
+          "tls_version": "TLSv1.3",
+          "service_version": "1.0.0",
+          "product": "generic-httpd",
+          "cpe": "cpe:/a:example:generic-httpd:1.0.0",
+          "service_identity_source": "fingerprint-db",
+          "service_identity_confidence": 0.9876543210987654
+        },
+        {
+          "port": 22,
+          "protocol": "tcp",
+          "service_name": "ssh",
+          "exposure_level": "internal",
+          "tls_version": "",
+          "service_version": null,
+          "product": null,
+          "cpe": null,
+          "service_identity_source": null,
+          "service_identity_confidence": null
+        }
+      ],
+      "classification_evidence": {
+        "asset_type": "server",
+        "confidence": 1.50e-1,
+        "rule_name": "open_ports.web",
+        "evidence": {
+          "method": "heuristic",
+          "open_ports": "443,22"
+        },
+        "security_flags": [
+          "internet_exposed_service"
+        ]
+      },
+      "network_aliases": [
+        {
+          "hostname": "host-a-alt-\u00e9",
+          "address": "192.0.2.11"
+        }
+      ],
+      "mac_address": "02:00:5e:10:00:10",
+      "mac_vendor": "generic-vendor",
+      "os_guess": null,
+      "os_guess_source": null,
+      "os_guess_confidence": null
+    }
+  ],
+  "identities": [],
+  "service_exposures": [
+    {
+      "asset_external_id": "ip:192.0.2.10",
+      "asset_id": "",
+      "port": 443,
+      "protocol": "tcp",
+      "service_name": "https",
+      "exposure_level": "internet",
+      "tls_version": "TLSv1.3",
+      "service_version": "1.0.0",
+      "product": "generic-httpd",
+      "cpe": "cpe:/a:example:generic-httpd:1.0.0",
+      "service_identity_source": "fingerprint-db",
+      "service_identity_confidence": 0.90
+    }
+  ],
+  "vulnerabilities": [],
+  "configuration_checks": [],
+  "password_policies": [],
+  "software_inventory": [],
+  "missing_kbs": [],
+  "tls_probes": [],
+  "payload_id_hash": null,
+  "scan_metadata": {
+    "recog_db_version": "recog-2026.01",
+    "os_signature_db_version": "osfp-v1"
+  },
+  "scan_status": "cancelled"
+}
