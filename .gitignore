@@ -1,0 +1,3 @@
+# GUI build output (CMake)
+gui/build*/
+gui/**/CMakeLists.txt.user
