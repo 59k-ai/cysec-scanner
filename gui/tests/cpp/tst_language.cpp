@@ -185,7 +185,7 @@ private slots:
 
     void availableLanguagesContract()
     {
-        LanguageController c;
+        LanguageController c(nullptr);
         const QVariantList langs = c.availableLanguages();
         QCOMPARE(langs.size(), 2);
         QCOMPARE(langs.at(0).toMap().value(QStringLiteral("code")).toString(), QStringLiteral("en"));

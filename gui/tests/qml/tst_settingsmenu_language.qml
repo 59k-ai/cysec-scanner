@@ -27,9 +27,12 @@ TestCase {
         TestData.resetSettings()
     }
 
+    property var settingsButton: null
+
     function openLanguageMenu() {
         const button = createTemporaryObject(settingsComponent, testCase, { x: 100, y: 600 })
         verify(button)
+        settingsButton = button
         mouseClick(button)
         tryCompare(button.menu, "opened", true)
         const languageMenu = button.menu.menuAt(0)
@@ -59,6 +62,8 @@ TestCase {
         compare(LanguageController.revision, revisionBefore + 1)
         compare(Formatter.count(12345, LanguageController.revision), "12.345")
         verify(de.checked)
+        // The shipped German catalogue is loaded and bindings retranslate.
+        compare(settingsButton.text, "Einstellungen")
 
         languageMenu = openLanguageMenu()
         const en = itemFor(languageMenu, "en")
@@ -67,6 +72,7 @@ TestCase {
         compare(LanguageController.language, "en")
         compare(LanguageController.revision, revisionBefore + 2)
         compare(Formatter.count(12345, LanguageController.revision), "12,345")
+        compare(settingsButton.text, "Settings")
     }
 
     function test_reselectingCurrentLanguageIsNoOp() {

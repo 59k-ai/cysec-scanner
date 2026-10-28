@@ -31,7 +31,11 @@ class LanguageController : public QObject
     Q_PROPERTY(QVariantList availableLanguages READ availableLanguages CONSTANT FINAL)
 
 public:
-    explicit LanguageController(QObject *parent = nullptr);
+    // Deliberately not default-constructible: QML prefers a default
+    // constructor over create() for singletons, which would leave the
+    // controller without its engine (no retranslate) and skip the startup
+    // language. create() is the only way QML builds it.
+    explicit LanguageController(QObject *parent);
 
     static LanguageController *create(QQmlEngine *qml, QJSEngine *js);
 

@@ -3,6 +3,8 @@
 
 #include "languagecontroller.h"
 
+#include <type_traits>
+
 #include <QCoreApplication>
 #include <QLocale>
 #include <QQmlEngine>
@@ -27,6 +29,9 @@ const QString kCatalogueBase = QStringLiteral("cysec_scanner_ui");
 
 } // namespace
 
+static_assert(!std::is_default_constructible_v<LanguageController>,
+              "QML must build LanguageController through create()");
+
 LanguageController::LanguageController(QObject *parent)
     : QObject(parent)
 {
@@ -35,7 +40,7 @@ LanguageController::LanguageController(QObject *parent)
 LanguageController *LanguageController::create(QQmlEngine *qml, QJSEngine *js)
 {
     Q_UNUSED(js);
-    auto *controller = new LanguageController;
+    auto *controller = new LanguageController(nullptr);
     controller->m_engine = qml;
 
     // Persisted choice first (D-28), else the system locale: any German
