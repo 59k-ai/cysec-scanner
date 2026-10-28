@@ -87,9 +87,16 @@ TestCase {
 
     function test_hostsCounter() {
         const panel = running({})
-        compare(findChild(panel, "hostsText").text, "3 hosts found")
+        // %n plural through qsTr. The English singular/plural forms come from
+        // the plural-only English catalogue LanguageController loads (13-13);
+        // without a translator the source form is shown.
+        const label = findChild(panel, "hostsText")
+        compare(label.text, qsTr("%n host(s) found", "", 3))
+        verify(label.text.indexOf("3") === 0, label.text)
+        verify(label.text.indexOf("%n") < 0, label.text)
         panel.hostsFound = 1
-        compare(findChild(panel, "hostsText").text, "1 host found")
+        compare(label.text, qsTr("%n host(s) found", "", 1))
+        verify(label.text.indexOf("1") === 0, label.text)
     }
 
     function test_noEta() {

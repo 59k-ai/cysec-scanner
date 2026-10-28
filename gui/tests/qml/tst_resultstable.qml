@@ -74,13 +74,14 @@ Item {
 
         function makeTable(props) {
             const model = TestData.hostModel(rootItem.hosts())
+            const columns = props.columns ? props.columns.length : 5
             const base = { model: model }
             for (const k in props)
                 base[k] = props[k]
             const t = createTemporaryObject(tableComponent, tableCase, base)
             verify(t)
             const view = findChild(t, "hostTable")
-            tryVerify(() => view.rows === model.count && view.columns === 5)
+            tryVerify(() => view.rows === model.count && view.columns === columns)
             waitForRendering(t)
             return t
         }
@@ -90,6 +91,12 @@ Item {
             tryVerify(() => (found = rootItem.findVisible(t, "cell_" + row + "_" + column)) !== null,
                       2000, "cell " + row + "," + column)
             return found
+        }
+
+        // Re-queried every time: a re-sort can hand the cell to another delegate.
+        function textAt(t, row, column) {
+            const c = rootItem.findVisible(t, "cell_" + row + "_" + column)
+            return c ? c.text : undefined
         }
 
         function test_headers() {
@@ -155,14 +162,14 @@ Item {
             tryVerify(() => (h = rootItem.findVisible(t, "header_0")) !== null)
             mouseClick(h)
             compare(t.sortOrder, Qt.DescendingOrder)
-            tryCompare(cell(t, 0, 0), "text", "192.0.2.100")
+            tryVerify(() => textAt(t, 0, 0) === "192.0.2.100")
             compare(cell(t, 2, 0).text, "192.0.2.9")
 
             let hn = rootItem.findVisible(t, "header_1")
             mouseClick(hn)
             compare(t.sortRole, "hostname")
             compare(t.sortOrder, Qt.AscendingOrder)
-            tryCompare(cell(t, 0, 1), "text", rootItem.hostile)
+            tryVerify(() => textAt(t, 0, 1) === rootItem.hostile)
         }
 
         function test_accessibleTable() {
@@ -218,7 +225,7 @@ Item {
             const t = makeTable({})
             t.filterText = "printer"
             tryCompare(findChild(t, "hostTable"), "rows", 1)
-            compare(cell(t, 0, 0).text, "192.0.2.9")
+            tryVerify(() => textAt(t, 0, 0) === "192.0.2.9")
         }
 
         function test_emptyState() {
