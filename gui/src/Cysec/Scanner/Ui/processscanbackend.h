@@ -3,13 +3,19 @@
 
 #pragma once
 
+#include "ndjsonparser.h"
 #include "scanbackend.h"
 
+#include <QByteArray>
+#include <QProcess>
 #include <QString>
 #include <QStringList>
 #include <QtQml/qqmlregistration.h>
 
-class QProcess;
+#include <memory>
+
+class QTemporaryDir;
+class QTimer;
 
 // ProcessScanBackend runs the scanner CLI as a child process and decodes its
 // detailed NDJSON progress stream. The engine path comes from
@@ -42,8 +48,24 @@ public:
     QStringList diagnosticsTail() const override;
 
 private:
+    void onStdout();
+    void onStderr();
+    void onFinished(int exitCode, QProcess::ExitStatus exitStatus);
+    void onErrorOccurred(QProcess::ProcessError error);
+    void processLines(const QList<QByteArray> &lines);
+    void appendDiagnostic(const QByteArray &raw);
+    void flushStderrPending();
+
     QProcess *m_process = nullptr;
+    QTimer *m_killTimer = nullptr;
+    std::unique_ptr<QTemporaryDir> m_tempDir;
     QString m_enginePath;
+    QString m_payloadPath;
     int m_stopGraceMs = 3000;
-    QStringList m_diagnostics;
+    bool m_stopRequested = false;
+    bool m_overflowReported = false;
+    NdjsonLineBuffer m_stdoutBuffer;
+    QByteArray m_stderrPending;
+    QStringList m_diagnostics; // sanitised stderr ring, capped by m_diagnosticsBytes
+    qsizetype m_diagnosticsBytes = 0;
 };
