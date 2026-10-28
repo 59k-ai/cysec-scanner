@@ -180,7 +180,7 @@ TestCase {
             verify(texts.indexOf(want) >= 0, "missing: " + want)
         }
         for (const t of texts)
-            verify(!/cysec\.watch|cysecwatch/i.test(t), t)
+            verify(!/cysec[.]?watch/i.test(t), t)
     }
 
     function test_aboutNoticesViewer() {
