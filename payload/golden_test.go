@@ -50,8 +50,9 @@ func canonicalBytes(t *testing.T, p Payload) []byte {
 	return append(b, '\n')
 }
 
-// buildCanonicalEmpty is the empty-but-strict-valid v6 payload: every required
-// top-level slice present as [] and every additive scalar pointer null. This is
+// buildCanonicalEmpty is the empty-but-strict-valid v7 payload: every required
+// top-level slice present as [] and every additive scalar pointer null
+// (including scan_status: a complete scan). This is
 // exactly what NewEmpty followed by Normalize produces.
 func buildCanonicalEmpty() Payload {
 	p := NewEmpty("full", "engine/0.0.0")
@@ -73,6 +74,8 @@ func buildCanonicalEmpty() Payload {
 // All values are opaque: RFC 5737 documentation IPs and generic labels.
 func buildCanonicalFull() Payload {
 	p := NewEmpty("full", "engine/0.0.0")
+	// v7: the full fixture exercises the SET scan_status boundary.
+	p.ScanStatus = ptr(ScanStatusCancelled)
 	p.ScanMetadata = &ScanMetadata{
 		RecogDBVersion:       ptr("recog-2026.01"),
 		OSSignatureDBVersion: ptr("osfp-v1"),

@@ -1,5 +1,5 @@
 {
-  "schema_version": 6,
+  "schema_version": 7,
   "payload_type": "full",
   "collector_version": "engine/0.0.0",
   "assets": [],
@@ -12,5 +12,6 @@
   "missing_kbs": [],
   "tls_probes": [],
   "payload_id_hash": null,
-  "scan_metadata": null
+  "scan_metadata": null,
+  "scan_status": null
 }

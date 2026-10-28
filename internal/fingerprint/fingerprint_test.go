@@ -6,6 +6,7 @@ package fingerprint
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -85,7 +86,7 @@ func TestEndToEndRecogMatch(t *testing.T) {
 	}
 
 	// Snapshot is strict-valid at version 6 (required slices [], version 6).
-	assertStrictValidV6(t, pl)
+	assertStrictValid(t, pl)
 }
 
 // TestDBVersionRecorded proves scan_metadata.recog_db_version is set from the
@@ -203,7 +204,7 @@ func TestRetainedPhase4ValueCarriesProvenance(t *testing.T) {
 	if svc.ServiceIdentityConfidence == nil || *svc.ServiceIdentityConfidence != 0.3 {
 		t.Errorf("service_identity_confidence = %v, want 0.3", svc.ServiceIdentityConfidence)
 	}
-	assertStrictValidV6(t, pl)
+	assertStrictValid(t, pl)
 }
 
 // TestPrecedenceOverwritesPhase4 proves an above-cut database match OVERWRITES a
@@ -227,7 +228,7 @@ func TestPrecedenceOverwritesPhase4(t *testing.T) {
 	if deref(svc.ServiceIdentitySource) != sourceRecogV1 {
 		t.Errorf("source not re-labeled to %q: %q", sourceRecogV1, deref(svc.ServiceIdentitySource))
 	}
-	assertStrictValidV6(t, pl)
+	assertStrictValid(t, pl)
 }
 
 // TestPrecedenceAtCutIsInclusive proves the 0.5 confidence cut is inclusive: a
@@ -290,7 +291,7 @@ func TestNeverRaises(t *testing.T) {
 			if svc.ServiceVersion != nil && len(*svc.ServiceVersion) > maxParamBytesForTest {
 				t.Errorf("service_version not length-capped: %d bytes", len(*svc.ServiceVersion))
 			}
-			assertStrictValidV6(t, pl)
+			assertStrictValid(t, pl)
 		})
 	}
 }
@@ -352,7 +353,7 @@ func TestHTTPRealPortStageResolvesV6(t *testing.T) {
 	if svc.CPE == nil {
 		t.Errorf("cpe nil; want non-nil")
 	}
-	assertStrictValidV6(t, pl)
+	assertStrictValid(t, pl)
 }
 
 // TestBelowCutServiceMatchNoOSGuess proves a below-cut service match cannot leak
@@ -395,7 +396,7 @@ func TestBelowCutServiceMatchNoOSGuess(t *testing.T) {
 		t.Errorf("below-cut OS family leaked into os_guess: guess=%v source=%v conf=%v",
 			a.OSGuess, a.OSGuessSource, a.OSGuessConfidence)
 	}
-	assertStrictValidV6(t, pl)
+	assertStrictValid(t, pl)
 }
 
 // TestOSGuessFromTTLAndBanner proves the OS engine emits a guess into the v6
@@ -425,7 +426,7 @@ func TestOSGuessFromTTLAndBanner(t *testing.T) {
 	if got := deref(a.Services[0].Product); got != "IIS" {
 		t.Errorf("ftp product = %q, want IIS", got)
 	}
-	assertStrictValidV6(t, pl)
+	assertStrictValid(t, pl)
 }
 
 // TestOSGuessTTLAloneIsUnknown proves a coarse TTL-only signal (no banner cue)
@@ -445,7 +446,7 @@ func TestOSGuessTTLAloneIsUnknown(t *testing.T) {
 		t.Errorf("TTL-alone must leave os_guess trio null: guess=%v source=%v conf=%v",
 			a.OSGuess, a.OSGuessSource, a.OSGuessConfidence)
 	}
-	assertStrictValidV6(t, pl)
+	assertStrictValid(t, pl)
 }
 
 // TestOSGuessNoSignalAllNull proves a host with no TTL family and no banner cue
@@ -463,7 +464,7 @@ func TestOSGuessNoSignalAllNull(t *testing.T) {
 	if a.OSGuess != nil || a.OSGuessSource != nil || a.OSGuessConfidence != nil {
 		t.Errorf("no-signal host must have null os_guess trio: %+v", a)
 	}
-	assertStrictValidV6(t, pl)
+	assertStrictValid(t, pl)
 }
 
 // TestOSDBVersionRecorded proves scan_metadata.os_signature_db_version is set on
@@ -562,7 +563,7 @@ func TestSMTPBelowCutRetained(t *testing.T) {
 	if deref(svc.ServiceIdentitySource) == sourceRecogV1 {
 		t.Errorf("below-cut smtp match was promoted to %q; preference 0.20 < cut", sourceRecogV1)
 	}
-	assertStrictValidV6(t, pl)
+	assertStrictValid(t, pl)
 }
 
 // assertGreetingResolvesV6 drives a leadered greeting through fingerprint.Run on
@@ -586,7 +587,7 @@ func assertGreetingResolvesV6(t *testing.T, port int, serviceName, greeting stri
 	if svc.CPE == nil {
 		t.Errorf("cpe nil; want non-nil")
 	}
-	assertStrictValidV6(t, pl)
+	assertStrictValid(t, pl)
 }
 
 // --- helpers ---
@@ -595,15 +596,15 @@ func assertGreetingResolvesV6(t *testing.T, port int, serviceName, greeting stri
 // assertion (a generous upper bound; the matcher caps well below this).
 const maxParamBytesForTest = 1024
 
-func assertStrictValidV6(t *testing.T, pl payload.Payload) {
+func assertStrictValid(t *testing.T, pl payload.Payload) {
 	t.Helper()
 	b, err := json.Marshal(pl)
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
 	s := string(b)
-	if !strings.Contains(s, `"schema_version":6`) {
-		t.Errorf("payload not at version 6; json=%s", s)
+	if want := fmt.Sprintf(`"schema_version":%d`, payload.SchemaVersion); !strings.Contains(s, want) {
+		t.Errorf("payload not at version %d; json=%s", payload.SchemaVersion, s)
 	}
 	for _, tag := range []string{"assets", "service_exposures", "identities"} {
 		if strings.Contains(s, `"`+tag+`":null`) {

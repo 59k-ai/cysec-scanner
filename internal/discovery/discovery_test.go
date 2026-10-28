@@ -14,6 +14,7 @@ import (
 	"github.com/59k-ai/cysec-scanner/internal/capabilities"
 	"github.com/59k-ai/cysec-scanner/internal/netutil"
 	"github.com/59k-ai/cysec-scanner/internal/scanstate"
+	"github.com/59k-ai/cysec-scanner/payload"
 )
 
 // TestMain defaults the hostname-resolver seams to no-ops so Run-based tests do
@@ -44,12 +45,12 @@ func marshalToMap(t *testing.T, st *scanstate.ScanState) map[string]any {
 	return m
 }
 
-// assertStrictValidV6 asserts schema_version 6 and that assets is a JSON list
+// assertStrictValid asserts schema_version == payload.SchemaVersion and that assets is a JSON list
 // (never null).
-func assertStrictValidV6(t *testing.T, m map[string]any) []any {
+func assertStrictValid(t *testing.T, m map[string]any) []any {
 	t.Helper()
-	if sv, _ := m["schema_version"].(float64); sv != 6 {
-		t.Fatalf("schema_version = %v, want 6", m["schema_version"])
+	if sv, _ := m["schema_version"].(float64); sv != float64(payload.SchemaVersion) {
+		t.Fatalf("schema_version = %v, want %d", m["schema_version"], payload.SchemaVersion)
 	}
 	assets, ok := m["assets"].([]any)
 	if !ok {
@@ -74,7 +75,7 @@ func TestTracerEndToEnd(t *testing.T) {
 		t.Fatalf("Run (live): %v", err)
 	}
 	m := marshalToMap(t, st)
-	assets := assertStrictValidV6(t, m)
+	assets := assertStrictValid(t, m)
 	if len(assets) != 1 {
 		t.Fatalf("live case produced %d assets, want 1", len(assets))
 	}
@@ -100,7 +101,7 @@ func TestTracerEndToEnd(t *testing.T) {
 	if err := Run(context.Background(), st2, capabilities.Capabilities{}, []string{"127.0.0.1/32"}); err != nil {
 		t.Fatalf("Run (zero): %v", err)
 	}
-	assets2 := assertStrictValidV6(t, marshalToMap(t, st2))
+	assets2 := assertStrictValid(t, marshalToMap(t, st2))
 	if len(assets2) != 0 {
 		t.Fatalf("zero-live case produced %d assets, want 0", len(assets2))
 	}
@@ -126,7 +127,7 @@ func runWithL2(t *testing.T, live []netutil.SweepResult, arp map[string]string, 
 	if err := Run(context.Background(), st, caps, []string{"10.0.0.0/24"}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	assets := assertStrictValidV6(t, marshalToMap(t, st))
+	assets := assertStrictValid(t, marshalToMap(t, st))
 	out := map[string]map[string]any{}
 	for _, a := range assets {
 		am := a.(map[string]any)
@@ -278,7 +279,7 @@ func TestEnrichL2DropsOutOfScopeARPHost(t *testing.T) {
 	if err := Run(context.Background(), st, caps, []string{"192.0.2.0/30"}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	assets := assertStrictValidV6(t, marshalToMap(t, st))
+	assets := assertStrictValid(t, marshalToMap(t, st))
 	if len(assets) != 0 {
 		t.Fatalf("out-of-scope ARP neighbour leaked into %d assets, want 0 (BLOCKER: ARP harvest must be scope-bounded)", len(assets))
 	}
@@ -406,7 +407,7 @@ func TestHostnameOnAsset(t *testing.T) {
 	if err := Run(context.Background(), st, capabilities.Capabilities{}, []string{"10.1.2.3/32"}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	assets := assertStrictValidV6(t, marshalToMap(t, st))
+	assets := assertStrictValid(t, marshalToMap(t, st))
 	if len(assets) != 1 {
 		t.Fatalf("produced %d assets, want 1", len(assets))
 	}
@@ -423,8 +424,8 @@ func TestHostnameOnAsset(t *testing.T) {
 // it drives discovery.Run with an injected sweep (one local host with a
 // MAC/vendor + TTL, one routed host outside the local segment) into a scanstate
 // accumulator, marshals the accumulated payload the way main.go does (after
-// Normalize), and asserts the JSON is strict-valid v6 populated with assets:
-// schema_version 6; assets a non-empty list; for EVERY asset services /
+// Normalize), and asserts the JSON is strict-valid populated with assets:
+// schema_version == payload.SchemaVersion; assets a non-empty list; for EVERY asset services /
 // network_aliases / classification_evidence.evidence / security_flags are
 // non-null and asset_type is "unknown"; the local host has a real
 // mac_address + mac_vendor; the routed host has a null mac_address, the sentinel
@@ -451,7 +452,7 @@ func TestDiscoveryPayloadStrictValid(t *testing.T) {
 	}
 
 	m := marshalToMap(t, st)
-	assets := assertStrictValidV6(t, m)
+	assets := assertStrictValid(t, m)
 	if len(assets) == 0 {
 		t.Fatal("assets is empty, want a populated payload for the DISC-05 gate")
 	}
@@ -535,7 +536,7 @@ func TestDetectDegrade(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fully-degraded Run returned %v, want nil", err)
 	}
-	assets := assertStrictValidV6(t, marshalToMap(t, st))
+	assets := assertStrictValid(t, marshalToMap(t, st))
 	if len(assets) != 0 {
 		t.Fatalf("fully-degraded run produced %d assets, want 0", len(assets))
 	}

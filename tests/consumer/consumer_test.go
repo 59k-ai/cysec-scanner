@@ -23,16 +23,16 @@ import (
 // deterministic and touching no real network host.
 var consumerScope = []string{"192.0.2.1/32"}
 
-// assertStrictValidV6 is the consumer-side copy of the objective's four-point
-// strict-valid v6 check: (1) schema_version == 6; (2) payload_type in the enum;
+// assertStrictValid is the consumer-side copy of the objective's four-point
+// strict-valid check: (1) schema_version == payload.SchemaVersion; (2) payload_type in the enum;
 // (3) after Normalize every required top-level slice marshals as a JSON array
 // (never null) and nested required containers are non-nil; (4) additive scalar
 // pointer fields are present.
-func assertStrictValidV6(t *testing.T, pl payload.Payload) {
+func assertStrictValid(t *testing.T, pl payload.Payload) {
 	t.Helper()
 
-	if pl.SchemaVersion != 6 {
-		t.Fatalf("schema_version = %d, want 6", pl.SchemaVersion)
+	if pl.SchemaVersion != payload.SchemaVersion {
+		t.Fatalf("schema_version = %d, want %d", pl.SchemaVersion, payload.SchemaVersion)
 	}
 	switch pl.PayloadType {
 	case "discovery", "identity", "vulnerability", "configuration", "full":
@@ -110,7 +110,7 @@ func TestConsumerDrivesRun(t *testing.T) {
 		t.Fatalf("scanner.Run: %v", err)
 	}
 
-	assertStrictValidV6(t, pl)
+	assertStrictValid(t, pl)
 
 	if len(events) == 0 {
 		t.Fatal("expected progress events, got none")

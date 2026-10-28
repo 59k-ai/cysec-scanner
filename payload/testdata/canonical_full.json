@@ -1,5 +1,5 @@
 {
-  "schema_version": 6,
+  "schema_version": 7,
   "payload_type": "full",
   "collector_version": "engine/0.0.0",
   "assets": [
@@ -110,5 +110,6 @@
   "scan_metadata": {
     "recog_db_version": "recog-2026.01",
     "os_signature_db_version": "osfp-v1"
-  }
+  },
+  "scan_status": "cancelled"
 }

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package payload is the Go-side hand-mirror of the authoritative wire model at
-// schema v6.
+// schema v7.
 //
 // The authoritative strict reference schema is the single SOURCE OF TRUTH; these
 // structs reproduce its field names, JSON tags and enum string values exactly
@@ -20,11 +20,18 @@
 //     value. v6 extends this to the fingerprint-provenance fields: a service
 //     identity's source + confidence and an asset's os_guess trio each marshal
 //     to null together when the match is below the prefer-unknown confidence cut.
+//     v7 adds the top-level scan_status marker (null = complete scan,
+//     "cancelled" = partial results from a cooperatively cancelled scan).
 package payload
 
 // SchemaVersion is the wire-schema version this mirror targets. It MUST equal
-// the Collector's reference-schema version (6); the cloud accepts v5 and v6.
-const SchemaVersion = 6
+// the reference-schema version (7); the cloud accepts v5, v6 and v7.
+const SchemaVersion = 7
+
+// ScanStatusCancelled is the only non-null scan_status value (v7). The scanner
+// stamps it on the partial payload it returns after a cooperative cancel, so a
+// consumer can tell a truncated scan from a complete one from the payload alone.
+const ScanStatusCancelled = "cancelled"
 
 // Payload is the top-level Collector -> cloud envelope.
 type Payload struct {
@@ -47,6 +54,10 @@ type Payload struct {
 	// nullable pointer: nil marshals to JSON null (reference schema: optional,
 	// default-null) and the fingerprint stage sets it once per run.
 	ScanMetadata *ScanMetadata `json:"scan_metadata"`
+	// ScanStatus is the v7 completeness marker. nil marshals to JSON null
+	// (reference schema: optional, default-null) = complete scan; the scanner
+	// sets "cancelled" (ScanStatusCancelled) on cooperative cancel.
+	ScanStatus *string `json:"scan_status"`
 }
 
 // ScanMetadata records the pinned fingerprint-database versions used for a scan
@@ -250,10 +261,11 @@ type TLSProbeItem struct {
 	ProbedAt        string             `json:"probed_at"`
 }
 
-// NewEmpty returns an empty-ish but strict-valid v5 payload: schema_version 5,
-// the given payload_type, every required slice initialised to its empty literal
-// (so each marshals to "[]" not "null"), and a nil payload_id_hash (JSON null —
-// the Collector runner stamps it). This is what the Phase-2 engine emits before
+// NewEmpty returns an empty-ish but strict-valid v7 payload: schema_version
+// SchemaVersion (7), the given payload_type, every required slice initialised to
+// its empty literal (so each marshals to "[]" not "null"), a nil payload_id_hash
+// (JSON null — the Collector runner stamps it) and a nil scan_status (JSON null —
+// a complete scan). This is what the Phase-2 engine emits before
 // any real scanning logic lands (D-04).
 func NewEmpty(payloadType, collectorVersion string) Payload {
 	return Payload{
@@ -270,6 +282,7 @@ func NewEmpty(payloadType, collectorVersion string) Payload {
 		MissingKbs:          []MissingKbItem{},
 		TLSProbes:           []TLSProbeItem{},
 		PayloadIDHash:       nil,
+		ScanStatus:          nil,
 	}
 }
 

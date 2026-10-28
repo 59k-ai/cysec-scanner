@@ -5,6 +5,7 @@ package payload
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -13,7 +14,7 @@ func ptr[T any](v T) *T { return &v }
 
 // TestEmptyPayloadSerialization pins the null-vs-[] invariant (PAY-04): every
 // required slice on an empty-ish payload marshals to "[]", never "null", and
-// schema_version marshals as 6 under its exact tag. A nil required slice (the
+// schema_version marshals as SchemaVersion under its exact tag. A nil required slice (the
 // regression this guards) would marshal to "null" and fail the strict model.
 func TestEmptyPayloadSerialization(t *testing.T) {
 	t.Parallel()
@@ -40,9 +41,13 @@ func TestEmptyPayloadSerialization(t *testing.T) {
 		}
 	}
 
-	// schema_version is 6 under its exact tag.
-	if !strings.Contains(s, `"schema_version":6`) {
-		t.Errorf("schema_version not 6 under schema_version tag; json=%s", s)
+	// schema_version tracks the SchemaVersion constant under its exact tag.
+	if want := fmt.Sprintf(`"schema_version":%d`, SchemaVersion); !strings.Contains(s, want) {
+		t.Errorf("schema_version not %d under schema_version tag; json=%s", SchemaVersion, s)
+	}
+	// scan_status is null when unset (v7: a complete scan).
+	if !strings.Contains(s, `"scan_status":null`) {
+		t.Errorf("scan_status should be null when unset; json=%s", s)
 	}
 	// scan_metadata is null when unset (nil pointer).
 	if !strings.Contains(s, `"scan_metadata":null`) {
@@ -180,8 +185,8 @@ func TestPopulatedRoundTrip(t *testing.T) {
 	if deref(exp.ServiceVersion) != "1.25.3" || deref(exp.Product) != "nginx" || deref(exp.CPE) != "cpe:/a:nginx:nginx:1.25.3" {
 		t.Errorf("service_exposure v5 fields not round-trip faithful: %+v", exp)
 	}
-	if out.SchemaVersion != 6 {
-		t.Errorf("schema_version round-trip = %d, want 6", out.SchemaVersion)
+	if out.SchemaVersion != SchemaVersion {
+		t.Errorf("schema_version round-trip = %d, want %d", out.SchemaVersion, SchemaVersion)
 	}
 }
 
@@ -340,7 +345,7 @@ func TestStrictValidV6(t *testing.T) {
 		}
 		s := string(raw)
 		for _, want := range []string{
-			`"schema_version":6`,
+			fmt.Sprintf(`"schema_version":%d`, SchemaVersion),
 			`"recog_db_version":"cf937c0"`,
 			`"os_signature_db_version":"osfp-v1"`,
 			`"os_guess":"Linux"`,
@@ -371,4 +376,51 @@ func TestStrictValidV6(t *testing.T) {
 			t.Errorf("service_identity_confidence lost in round-trip: %+v", svc)
 		}
 	})
+}
+
+// TestSchemaVersionIsV7 is the single deliberate literal lock on the wire
+// version (D-25). Every other test tracks the SchemaVersion constant.
+func TestSchemaVersionIsV7(t *testing.T) {
+	if SchemaVersion != 7 {
+		t.Fatalf("SchemaVersion = %d, want 7", SchemaVersion)
+	}
+	if ScanStatusCancelled != "cancelled" {
+		t.Fatalf("ScanStatusCancelled = %q, want \"cancelled\"", ScanStatusCancelled)
+	}
+}
+
+// TestV7ScanStatusNullVsValue pins the v7 scan_status pointer boundary: nil
+// marshals to JSON null (complete scan), a set pointer to "cancelled", and
+// both survive an unmarshal round-trip.
+func TestV7ScanStatusNullVsValue(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status *string
+		want   string
+	}{
+		{"null", nil, `"scan_status":null`},
+		{"cancelled", ptr(ScanStatusCancelled), `"scan_status":"cancelled"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := NewEmpty("full", "engine/0.0.0")
+			in.ScanStatus = tc.status
+			raw, err := json.Marshal(in)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			if !strings.Contains(string(raw), tc.want) {
+				t.Fatalf("missing %s; json=%s", tc.want, raw)
+			}
+			var out Payload
+			if err := json.Unmarshal(raw, &out); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			switch {
+			case tc.status == nil && out.ScanStatus != nil:
+				t.Fatalf("scan_status round-trip = %q, want nil", *out.ScanStatus)
+			case tc.status != nil && (out.ScanStatus == nil || *out.ScanStatus != *tc.status):
+				t.Fatalf("scan_status round-trip = %v, want %q", out.ScanStatus, *tc.status)
+			}
+		})
+	}
 }

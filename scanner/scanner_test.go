@@ -20,16 +20,16 @@ import (
 // default stage and the full payload-assembly path.
 var testScope = []string{"192.0.2.1/32"}
 
-// assertStrictValidV6 implements the four-point "strict-valid v6 payload" check
-// (plan objective): (1) schema_version == 6; (2) payload_type in the exact enum
+// assertStrictValid implements the four-point "strict-valid payload" check
+// (plan objective): (1) schema_version == payload.SchemaVersion; (2) payload_type in the exact enum
 // set; (3) after Normalize every required top-level slice marshals as a JSON
 // array (never null) and every nested required container is non-nil; (4) the
 // additive scalar pointer fields are present (serialize null-or-value).
-func assertStrictValidV6(t *testing.T, pl payload.Payload) {
+func assertStrictValid(t *testing.T, pl payload.Payload) {
 	t.Helper()
 
-	if pl.SchemaVersion != 6 {
-		t.Fatalf("schema_version = %d, want 6", pl.SchemaVersion)
+	if pl.SchemaVersion != payload.SchemaVersion {
+		t.Fatalf("schema_version = %d, want %d", pl.SchemaVersion, payload.SchemaVersion)
 	}
 	switch pl.PayloadType {
 	case "discovery", "identity", "vulnerability", "configuration", "full":
@@ -89,7 +89,7 @@ func assertStrictValidV6(t *testing.T, pl payload.Payload) {
 	}
 
 	// Additive scalar pointer fields are present (null-or-value).
-	for _, key := range []string{"payload_id_hash", "scan_metadata"} {
+	for _, key := range []string{"payload_id_hash", "scan_metadata", "scan_status"} {
 		if _, ok := top[key]; !ok {
 			t.Errorf("additive pointer key %q missing from JSON", key)
 		}
@@ -103,7 +103,7 @@ func TestRunDefaultPayloadStrictValid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	assertStrictValidV6(t, pl)
+	assertStrictValid(t, pl)
 }
 
 // TestRunCanceledContextRunsZeroStageBodies proves a ctx canceled before Run
@@ -148,7 +148,7 @@ func TestRunExtraStageSeesScanContext(t *testing.T) {
 	if !sawCtx || !sawFacade {
 		t.Fatalf("extra stage did not receive a usable ScanContext (ctx=%v facade=%v)", sawCtx, sawFacade)
 	}
-	assertStrictValidV6(t, pl)
+	assertStrictValid(t, pl)
 }
 
 // TestRunExtraStageWidenedFacadeEmits proves the five slice-writer methods on
@@ -208,7 +208,7 @@ func TestRunExtraStageWidenedFacadeEmits(t *testing.T) {
 	if pl.Identities[0].Username != "alice" {
 		t.Errorf("identities[0].username = %q, want %q", pl.Identities[0].Username, "alice")
 	}
-	assertStrictValidV6(t, pl)
+	assertStrictValid(t, pl)
 }
 
 // TestRunSinkSequence pins the progress event sequence Run owns (D-08): with nil
@@ -281,5 +281,5 @@ func TestStandaloneSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	assertStrictValidV6(t, pl)
+	assertStrictValid(t, pl)
 }
