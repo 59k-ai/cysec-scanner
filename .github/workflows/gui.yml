@@ -14,13 +14,18 @@ on:
 
 jobs:
   # Gate G0 — Qt toolchain install spike (RESEARCH assumption A1, threat T-13-SC).
-  # aqtinstall 3.3.x predates Qt 6.10+, so whether 6.12.0 installs is an
-  # empirical question answered here. One leg per D-17 runner (6.12.0 on
-  # macOS and Linux, 6.10.3 on Windows, see the leg comment) plus one 6.8.3
-  # Linux leg (the API floor per the RESEARCH Qt Version Decision). install-qt-action is pinned by full commit SHA and aqtinstall by
-  # version range '==3.3.*'; both were approved by a human before first use.
-  # The spike uses no secrets and no write tokens. fail-fast is off so every
-  # leg reports independently and one failure cannot mask another.
+  # Proves the ship toolchain Qt 6.12.0 installs on every D-17 runner (macOS,
+  # Linux, Windows) plus the 6.8.3 API floor on Linux (RESEARCH Qt Version
+  # Decision). install-qt-action is pinned by full commit SHA. aqtinstall is
+  # sourced from a pinned miurahr/aqtinstall commit, not PyPI: the newest PyPI
+  # release (3.3.0) cannot read the per-toolchain Windows repository layout
+  # Qt uses from 6.11 on (upstream issue #959, fixed by PR #1000 on master,
+  # unreleased). The same pinned source serves every leg so one installer
+  # version is exercised everywhere. Both the action and this git source were
+  # approved by a human before first use. When aqtsource is set the action
+  # ignores aqtversion, so aqtversion is deliberately not passed. The spike
+  # uses no secrets and no write tokens. fail-fast is off so every leg reports
+  # independently and one failure cannot mask another.
   qt-install-spike:
     name: "Qt ${{ matrix.qt }} install spike (${{ matrix.os }})"
     runs-on: ${{ matrix.os }}
@@ -34,15 +39,8 @@ jobs:
           - os: ubuntu-24.04
             qt: "6.12.0"
             arch: linux_gcc_64
-          # Windows data point: aqtinstall 3.3.0 (the newest PyPI release)
-          # cannot locate the Windows repository XML for 6.12.0 or the 6.11.1
-          # fallback, because from Qt 6.11 the Windows online repository is
-          # split into per-toolchain folders (upstream aqtinstall #959, fixed
-          # on its master but unreleased). 6.10.3 is the newest Windows
-          # release in the old layout. The ship-toolchain choice for Windows
-          # is a recorded human decision taken before plan 13-17.
           - os: windows-2022
-            qt: "6.10.3"
+            qt: "6.12.0"
             arch: win64_msvc2022_64
           - os: ubuntu-24.04
             qt: "6.8.3"
@@ -56,7 +54,9 @@ jobs:
         with:
           version: ${{ matrix.qt }}
           arch: ${{ matrix.arch }}
-          aqtversion: "==3.3.*"
+          # aqtinstall master 076e1659807d0b362a3ed684d54c2e9c775eb9c7 (2026-09-11),
+          # contains PR #1000 (8c3695d4, Qt 6.11+ Windows repository layout).
+          aqtsource: "git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7"
           cache: true
 
       - name: Print toolchain versions
