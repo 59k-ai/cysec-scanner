@@ -28,3 +28,9 @@ target_link_libraries(cysec-scanner-gui PRIVATE
     # The backing library carries the public compile definitions (GUI
     # version) and the C++ types; the plugin target does not forward them.
     cysec_scanner_ui)
+
+# main.cpp builds the session, the process backend and EngineInfo; the module
+# target exports no include directory, so the app includes its headers by
+# bare name like the C++ tests do.
+target_include_directories(cysec-scanner-gui PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../src/Cysec/Scanner/Ui")
