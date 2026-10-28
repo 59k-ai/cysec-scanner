@@ -148,7 +148,8 @@ func Run(ctx context.Context, st *scanstate.ScanState, caps capabilities.Capabil
 
 	sigs := osfp.DefaultSignatures()
 
-	for _, a := range st.Assets() {
+	assets := st.Assets()
+	for i, a := range assets {
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -201,6 +202,9 @@ func Run(ctx context.Context, st *scanstate.ScanState, caps capabilities.Capabil
 				// Intrusive OS stack probe plugs in here (privileged-capture seam).
 			}
 		})
+		// Live stage progress (D-01): one tick per processed asset. The updated
+		// host row already reaches the observer through UpdateAsset.
+		st.ReportProgress("fingerprint", i+1, len(assets))
 	}
 	return nil
 }

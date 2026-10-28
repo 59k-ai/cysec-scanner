@@ -32,6 +32,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"golang.org/x/time/rate"
@@ -110,6 +111,19 @@ func Run(ctx context.Context, st *scanstate.ScanState, caps capabilities.Capabil
 	var mu sync.Mutex
 	openByAsset := map[string][]openPort{}
 
+	// Per-asset remaining work-item counts drive live finalization (D-02): as soon
+	// as the last item of an asset completes, that asset's services are merged so
+	// its host row updates mid-stage instead of only after wg.Wait(). finalized
+	// guards finalize-once; both are guarded by mu. The per-asset result is the
+	// same either way (finalizeAsset sorts), so the payload is unchanged.
+	remaining := map[string]int{}
+	for _, it := range items {
+		remaining[it.assetID]++
+	}
+	finalized := map[string]bool{}
+	var done atomic.Int64
+	total := len(items)
+
 	for _, it := range items {
 		if ctx.Err() != nil {
 			break
@@ -136,15 +150,39 @@ func Run(ctx context.Context, st *scanstate.ScanState, caps capabilities.Capabil
 			// Drive the adaptive-backoff hook on the live limiter under the same
 			// lock that guards the window (no-op this phase).
 			adjustRate(opts.Tier, limiter, window)
+			remaining[it.assetID]--
+			var ready []openPort
+			finalizeNow := false
+			if remaining[it.assetID] == 0 && !finalized[it.assetID] {
+				finalized[it.assetID] = true
+				finalizeNow = true
+				ready = append([]openPort(nil), openByAsset[it.assetID]...)
+			}
 			mu.Unlock()
+
+			// Observer-facing calls happen outside mu (T-13-19): finalizeAsset
+			// enters the accumulator lock and notifies the observer.
+			if finalizeNow && len(ready) > 0 {
+				finalizeAsset(st, it.assetID, ready)
+			}
+			st.ReportProgress("port", int(done.Add(1)), total)
 		}(it)
 	}
 	wg.Wait()
 
-	// Per asset: assemble services + classification deterministically and merge
-	// them back under the accumulator lock.
-	for id, ports := range openByAsset {
-		finalizeAsset(st, id, ports)
+	// Anything not finalized live (cancellation left items unrun) is committed
+	// with what was gathered, in deterministic order, exactly once — the partial
+	// payload keeps its port data.
+	var pending []string
+	for id := range openByAsset {
+		if !finalized[id] {
+			pending = append(pending, id)
+		}
+	}
+	sort.Strings(pending)
+	for _, id := range pending {
+		finalized[id] = true
+		finalizeAsset(st, id, openByAsset[id])
 	}
 	return nil
 }
