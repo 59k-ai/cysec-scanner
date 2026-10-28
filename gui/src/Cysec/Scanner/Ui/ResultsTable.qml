@@ -169,6 +169,10 @@ Item {
         syncView: table
         clip: true
         boundsBehavior: Flickable.StopAtBounds
+        // Not a Tab stop: the UI-SPEC order goes filter -> table, and the
+        // header cells are sorted by pointer (each cell is announced as a
+        // column header).
+        activeFocusOnTab: false
 
         delegate: Rectangle {
             id: headerCell

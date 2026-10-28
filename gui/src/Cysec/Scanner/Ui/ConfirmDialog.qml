@@ -24,6 +24,10 @@ Dialog {
     signal secondaryChosen()
 
     readonly property bool primaryIsDefault: !destructive
+    // False while secondaryChosen() is emitted for a close without a choice
+    // (Escape, outside close), true for a button or Enter. Callers whose
+    // secondary action loses data use it to treat Escape as "cancel".
+    readonly property bool choiceExplicit: d.explicit
 
     modal: true
     focus: true
@@ -36,16 +40,19 @@ Dialog {
     QtObject {
         id: d
         property bool chosen: false
+        property bool explicit: false
     }
 
     function choosePrimary() {
         d.chosen = true
+        d.explicit = true
         root.close()
         root.primaryChosen()
     }
 
     function chooseSecondary() {
         d.chosen = true
+        d.explicit = true
         root.close()
         root.secondaryChosen()
     }
@@ -57,11 +64,15 @@ Dialog {
             root.chooseSecondary()
     }
 
-    onAboutToShow: d.chosen = false
+    onAboutToShow: {
+        d.chosen = false
+        d.explicit = false
+    }
     onOpened: (root.primaryIsDefault ? primaryButton : secondaryButton)
                   .forceActiveFocus(Qt.PopupFocusReason)
     onClosed: if (!d.chosen) {
         d.chosen = true
+        d.explicit = false
         root.secondaryChosen()
     }
 
