@@ -76,7 +76,8 @@ TestCase {
         const list = findChild(panel, "logList")
         verify(list.visible)
         tryCompare(list, "count", 4)
-        waitForRendering(panel)
+        // The panel animates open; wait until every line has a delegate.
+        tryVerify(() => [0, 1, 2, 3].every(i => findChild(panel, "logLevel" + i) !== null))
 
         // Level icon plus level word, never colour alone.
         compare(findChild(panel, "logLevel0").text, "Info")

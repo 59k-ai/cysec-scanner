@@ -198,9 +198,10 @@ TestCase {
     function test_aboutLoadNoticesFromResource() {
         const dlg = openAbout({})
         compare(dlg.noticesText, "")
-        dlg.loadNotices()
+        // tst_main.cpp sets QML_XHR_ALLOW_FILE_READ=1, as the app must.
+        verify(dlg.loadNotices())
         tryVerify(() => dlg.noticesText.length > 100, 3000)
-        verify(dlg.noticesText.indexOf("IBM Plex") >= 0 || dlg.noticesText.length > 0)
+        verify(dlg.noticesText.indexOf("IBM Plex") >= 0)
     }
 
     function test_aboutCloseButton() {

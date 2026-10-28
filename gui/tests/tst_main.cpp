@@ -103,6 +103,14 @@ class Setup : public QObject
 {
     Q_OBJECT
 
+public:
+    Setup()
+    {
+        // AboutDialog.loadNotices() reads the qrc notices with XMLHttpRequest,
+        // which Qt only allows for local/qrc URLs with this switch.
+        qputenv("QML_XHR_ALLOW_FILE_READ", "1");
+    }
+
 public slots:
     void qmlEngineAvailable(QQmlEngine *engine)
     {
