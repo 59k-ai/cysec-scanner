@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/59k-ai/cysec-scanner/internal/capabilities"
@@ -41,6 +42,21 @@ type SweepResult struct {
 // pinger is injected, Sweep yields zero live hosts rather than erroring — the
 // unprivileged default must always degrade gracefully (ENG-06).
 func Sweep(ctx context.Context, cidrs []string, caps capabilities.Capabilities, ping PingFunc) []SweepResult {
+	return SweepObserved(ctx, cidrs, caps, ping, nil)
+}
+
+// SweepObserver is told about every completed probe: the probed ip, whether it
+// replied, and the running done count out of the total enumerated hosts. It is
+// called from the sweep's worker goroutines (concurrently, outside the results
+// lock), so it must be safe for concurrent use. done values are unique and cover
+// 1..total when the sweep runs to completion; a probe skipped because ctx was
+// cancelled is not reported.
+type SweepObserver func(ip string, alive bool, done, total int)
+
+// SweepObserved is Sweep with a live per-probe observer (opt-in detailed
+// progress, D-01). obs may be nil, in which case it behaves exactly like Sweep.
+// The returned live set is identical either way: the observer only watches.
+func SweepObserved(ctx context.Context, cidrs []string, caps capabilities.Capabilities, ping PingFunc, obs SweepObserver) []SweepResult {
 	if ping == nil {
 		ping = defaultPinger(caps)
 	}
@@ -56,6 +72,8 @@ func Sweep(ctx context.Context, cidrs []string, caps capabilities.Capabilities, 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var live []SweepResult
+	var done atomic.Int64
+	total := len(hosts)
 
 	for _, ip := range hosts {
 		if ctx.Err() != nil {
@@ -74,6 +92,9 @@ func Sweep(ctx context.Context, cidrs []string, caps capabilities.Capabilities, 
 				mu.Lock()
 				live = append(live, SweepResult{IP: ip, TTL: ttl})
 				mu.Unlock()
+			}
+			if obs != nil {
+				obs(ip, ok, int(done.Add(1)), total)
 			}
 		}(ip)
 	}

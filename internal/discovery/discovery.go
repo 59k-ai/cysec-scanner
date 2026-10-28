@@ -28,11 +28,35 @@ import (
 // a live network. sweepHosts enumerates live hosts; arpTable reads the kernel ARP
 // cache; localNetworks reports this host's local segments (used both as the
 // default sweep scope and to decide whether an L2-silent host is routed).
+//
+// sweepHosts keeps the plain Sweep signature so existing overrides stay valid.
+// Its default routes through netutil.SweepObserved with the per-run observer
+// carried on ctx (see withSweepObserver), so live progress needs no new seam
+// shape. sweepPing is the liveness seam handed to the sweep (nil = the
+// capability-selected default pinger).
 var (
-	sweepHosts    = netutil.Sweep
+	sweepHosts    = observedSweep
+	sweepPing     netutil.PingFunc
 	arpTable      = netutil.ARPTable
 	localNetworks = netutil.LocalLANNetworks
 )
+
+// sweepObserverKey carries a run's netutil.SweepObserver on the context into the
+// default sweepHosts seam. It is package-private: nothing outside discovery
+// reads or sets it.
+type sweepObserverKey struct{}
+
+// withSweepObserver returns ctx carrying obs for the default sweep seam.
+func withSweepObserver(ctx context.Context, obs netutil.SweepObserver) context.Context {
+	return context.WithValue(ctx, sweepObserverKey{}, obs)
+}
+
+// observedSweep is the default sweepHosts: netutil.SweepObserved with whatever
+// observer the run put on ctx (none = plain Sweep behaviour).
+func observedSweep(ctx context.Context, cidrs []string, caps capabilities.Capabilities, ping netutil.PingFunc) []netutil.SweepResult {
+	obs, _ := ctx.Value(sweepObserverKey{}).(netutil.SweepObserver)
+	return netutil.SweepObserved(ctx, cidrs, caps, ping, obs)
+}
 
 // hostEntry is one live host collected during a run, before it is finalized into
 // an asset. ttl is the best-effort reply TTL kept for a later OS-fingerprint
@@ -70,7 +94,18 @@ func Run(ctx context.Context, st *scanstate.ScanState, caps capabilities.Capabil
 	// unprivileged ICMP socket and no system ping) yields zero hosts, not an
 	// error. The rest of Run tolerates an empty result and still produces a
 	// complete, Normalize-able payload (ENG-06 graceful degradation).
-	results := sweepHosts(ctx, scope, caps, nil)
+	//
+	// Live progress (D-01/D-02): every completed probe advances the discovery
+	// stage counter, and each live reply surfaces immediately as a bare host row.
+	// The enriched row follows from AddAsset below. Both are no-ops without an
+	// observer, and neither touches the committed assets.
+	obs := func(ip string, alive bool, done, total int) {
+		st.ReportProgress("discovery", done, total)
+		if alive {
+			st.ReportHostSeen(ip)
+		}
+	}
+	results := sweepHosts(withSweepObserver(ctx, obs), scope, caps, sweepPing)
 
 	// Collect live hosts into an internal set keyed by external_id. ip:<ip> is
 	// the only identity known from the sweep; L2 enrichment re-keys/harvests here
