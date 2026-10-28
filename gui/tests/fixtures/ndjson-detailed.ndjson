@@ -1,0 +1,12 @@
+{"kind":"scan_start","seq":0,"ts":1793160000.1,"phase":"scan","agent":null,"errors":0,"warnings":0,"assets":0,"scan":{"scope":["192.0.2.0/24","198.51.100.7/32"],"stages":["discovery","port","fingerprint"],"capabilities":{"unprivileged_icmp":false,"system_ping":true,"arp_cache":true}}}
+{"kind":"phase_start","seq":1,"ts":1793160000.2,"phase":"scan","agent":null,"errors":0,"warnings":0,"assets":0}
+{"kind":"agent_start","seq":2,"ts":1793160000.3,"phase":"scan","agent":"discovery","errors":0,"warnings":0,"assets":0}
+{"kind":"host","seq":3,"ts":1793160001.0,"phase":"scan","agent":"discovery","errors":0,"warnings":0,"assets":1,"host":{"ip":"192.0.2.20","external_id":"ip:192.0.2.20","hostname":"","mac":null,"mac_vendor":null,"os_guess":null,"os_guess_confidence":null}}
+{"kind":"agent_done","seq":4,"ts":1793160003.3,"phase":"scan","agent":"discovery","errors":0,"warnings":0,"assets":3}
+{"kind":"agent_start","seq":5,"ts":1793160003.4,"phase":"scan","agent":"port","errors":0,"warnings":0,"assets":3}
+{"kind":"stage_progress","seq":6,"ts":1793160004.0,"phase":"scan","agent":"port","errors":0,"warnings":0,"assets":3,"progress":{"done":1200,"total":9472}}
+{"kind":"host","seq":7,"ts":1793160005.5,"phase":"scan","agent":"port","errors":0,"warnings":0,"assets":3,"host":{"ip":"192.0.2.10","external_id":"mac:02:00:5e:10:00:10","hostname":"host-a","mac":"02:00:5e:10:00:10","mac_vendor":"generic-vendor","os_guess":"generic-linux","os_guess_confidence":0.75,"services":[{"port":22,"protocol":"tcp","service_name":"ssh","product":null,"service_version":null},{"port":443,"protocol":"tcp","service_name":"https","product":"generic-httpd","service_version":"1.0.0"}]}}
+{"kind":"log","seq":8,"ts":1793160006.0,"phase":"scan","agent":"port","errors":0,"warnings":1,"assets":3,"log":{"level":"warn","message":"host 198.51.100.7 did not answer the port probe"}}
+{"kind":"host","seq":9,"ts":1793160007.0,"phase":"scan","agent":"port","errors":0,"warnings":1,"assets":3,"host":{"ip":"198.51.100.7","external_id":"ip:198.51.100.7","hostname":"","mac":null,"mac_vendor":null,"os_guess":null,"os_guess_confidence":null,"services":[]}}
+{"kind":"agent_done","seq":10,"ts":1793160009.7,"phase":"scan","agent":"port","errors":0,"warnings":1,"assets":3}
+{"kind":"scan_end","seq":11,"ts":1793160010.0,"phase":"scan","agent":null,"errors":0,"warnings":1,"assets":3,"scan_end":{"status":"cancelled","error":null,"assets":3}}

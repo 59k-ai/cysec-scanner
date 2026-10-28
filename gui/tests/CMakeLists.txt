@@ -27,6 +27,10 @@ function(cysec_gui_cpp_test name)
     qt_add_executable(tst_${name} "${_src}")
     set_target_properties(tst_${name} PROPERTIES MACOSX_BUNDLE OFF WIN32_EXECUTABLE OFF)
     target_link_libraries(tst_${name} PRIVATE Qt6::Test Qt6::Quick cysec_scanner_ui)
+    # The module target exports no include directory; C++ tests include its
+    # headers by bare name ("ndjsonparser.h").
+    target_include_directories(tst_${name} PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/../src/Cysec/Scanner/Ui")
     target_compile_definitions(tst_${name} PRIVATE
         CYSEC_GUI_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
     if(TARGET cysec-fake-engine)

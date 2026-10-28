@@ -1,0 +1,5 @@
+{"kind":"phase_start","seq":0,"ts":1793160000.1,"phase":"scan","agent":null,"errors":0,"warnings":0,"assets":0}
+{"kind":"agent_start","seq":1,"ts":1793160000.2,"phase":"scan","agent":"discovery","errors":0,"warnings":0,"assets":0}
+{"kind":"agent_start","seq":2,"ts":1793160003.4,"phase":"scan","agent":"port","errors":0,"warnings":0,"assets":2}
+{"kind":"agent_start","seq":3,"ts":1793160009.8,"phase":"scan","agent":"fingerprint","errors":0,"warnings":0,"assets":2}
+{"kind":"phase_done","seq":4,"ts":1793160012.5,"phase":"scan","agent":null,"errors":0,"warnings":1,"assets":2}

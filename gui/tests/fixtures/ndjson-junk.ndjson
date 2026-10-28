@@ -1,0 +1,10 @@
+{"kind":"phase_start","seq":0,"ts":1793160000.1,"phase":"scan","agent":null,"errors":0,"warnings":0,"assets":0}
+
+not json at all
+[1,2,3]
+{"kind":"future_kind","seq":1,"ts":1793160000.2,"phase":"scan","agent":null,"errors":0,"warnings":0,"assets":0,"future":{"x":1}}
+{"kind":"agent_start","seq":"two","ts":"soon","phase":"scan","agent":42,"errors":0,"warnings":0,"assets":0}
+{"kind":"stage_progress","seq":3,"ts":1793160000.4,"phase":"scan","agent":"port","errors":0,"warnings":0,"assets":0,"progress":"lots"}
+{"kind":"host","seq":4,"ts":1793160000.5
+"just a string"
+{"kind":"phase_done","seq":5,"ts":1793160000.6,"phase":"scan","agent":null,"errors":0,"warnings":0,"assets":0}
