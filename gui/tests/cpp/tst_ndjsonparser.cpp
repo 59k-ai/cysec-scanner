@@ -306,5 +306,6 @@ void TstNdjsonParser::hostileStringsPreserved()
     QCOMPARE(ev[1].logMessage, QStringLiteral("banner &amp;<b> from 192.0.2.66"));
 }
 
-QTEST_GUILESS_MAIN(TstNdjsonParser)
+// QTEST_MAIN (QGuiApplication) because ctest passes -platform offscreen.
+QTEST_MAIN(TstNdjsonParser)
 #include "tst_ndjsonparser.moc"
