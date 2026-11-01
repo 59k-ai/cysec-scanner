@@ -5,7 +5,9 @@ package netutil
 
 import (
 	"errors"
+	"reflect"
 	"testing"
+	"time"
 )
 
 // TestPingResultLiveUsesExitStatusNotOutputLanguage pins CR-01: host liveness is
@@ -65,5 +67,53 @@ func TestParseReplyTTLBounded(t *testing.T) {
 				t.Fatalf("parseReplyTTL(%q) = %d is outside the valid 0..255 band", tc.in, got)
 			}
 		})
+	}
+}
+
+// TestSystemPingArgsPerOS pins the Windows argv: ping.exe refuses the iputils
+// `-c` without administrator rights, so the Linux argv made every Windows probe
+// fail and discovery silently fell back to ARP/TCP.
+func TestSystemPingArgsPerOS(t *testing.T) {
+	cases := []struct {
+		goos, ip string
+		timeout  time.Duration
+		want     []string
+	}{
+		{"linux", "10.0.0.1", 1500 * time.Millisecond, []string{"-c", "1", "-W", "1", "-n", "-q", "10.0.0.1"}},
+		{"linux", "10.0.0.1", 200 * time.Millisecond, []string{"-c", "1", "-W", "1", "-n", "-q", "10.0.0.1"}},
+		{"linux", "fe80::1", time.Second, []string{"-6", "-c", "1", "-W", "1", "-n", "-q", "fe80::1"}},
+		{"windows", "10.0.0.1", 1500 * time.Millisecond, []string{"-n", "1", "-w", "1500", "10.0.0.1"}},
+		{"windows", "10.0.0.1", 0, []string{"-n", "1", "-w", "1", "10.0.0.1"}},
+		{"windows", "fe80::1", time.Second, []string{"-6", "-n", "1", "-w", "1000", "fe80::1"}},
+	}
+	for _, tc := range cases {
+		got := systemPingArgs(tc.goos, tc.ip, tc.timeout)
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("systemPingArgs(%q, %q, %v) = %q, want %q", tc.goos, tc.ip, tc.timeout, got, tc.want)
+		}
+	}
+}
+
+// TestWindowsPingResultLiveNeedsEchoReply pins that ping.exe's exit 0 alone is
+// not liveness: a gateway "Destination host unreachable" also exits 0.
+func TestWindowsPingResultLiveNeedsEchoReply(t *testing.T) {
+	reply := []byte("Pinging 192.168.1.1 with 32 bytes of data:\r\n" +
+		"Reply from 192.168.1.1: bytes=32 time=2ms TTL=64\r\n")
+	if live, ttl := windowsPingResultLive(reply, nil); !live || ttl != 64 {
+		t.Fatalf("echo reply: got live=%v ttl=%d, want live ttl=64", live, ttl)
+	}
+	german := []byte("Antwort von 192.168.1.1: Bytes=32 Zeit=2ms TTL=128\r\n")
+	if live, ttl := windowsPingResultLive(german, nil); !live || ttl != 128 {
+		t.Fatalf("German echo reply: got live=%v ttl=%d, want live ttl=128", live, ttl)
+	}
+	unreachable := []byte("Reply from 192.168.1.20: Destination host unreachable.\r\n")
+	if live, _ := windowsPingResultLive(unreachable, nil); live {
+		t.Fatal("exit 0 with 'Destination host unreachable' must not be live")
+	}
+	if live, _ := windowsPingResultLive([]byte("Request timed out.\r\n"), errors.New("exit status 1")); live {
+		t.Fatal("non-zero exit must not be live")
+	}
+	if live, _ := windowsPingResultLive(reply, errors.New("exit status 1")); live {
+		t.Fatal("non-zero exit must not be live even with a TTL token")
 	}
 }

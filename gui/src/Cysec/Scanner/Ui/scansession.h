@@ -43,6 +43,9 @@ class ScanSession : public QObject
 
     Q_PROPERTY(bool capabilitiesKnown READ capabilitiesKnown NOTIFY capabilitiesChanged FINAL)
     Q_PROPERTY(bool unprivilegedIcmp READ unprivilegedIcmp NOTIFY capabilitiesChanged FINAL)
+    // The engine falls back to the system ping binary when the unprivileged
+    // socket is refused (always on Windows), so ICMP discovery still runs.
+    Q_PROPERTY(bool systemPing READ systemPing NOTIFY capabilitiesChanged FINAL)
     // False when this run could not read the neighbour cache (macOS 27 hides it
     // from processes without administrator rights), so MACs stay empty.
     Q_PROPERTY(bool arpCache READ arpCache NOTIFY capabilitiesChanged FINAL)
@@ -91,6 +94,7 @@ public:
 
     bool capabilitiesKnown() const;
     bool unprivilegedIcmp() const;
+    bool systemPing() const;
     bool arpCache() const;
 
     bool hasPayload() const;
@@ -139,6 +143,7 @@ private:
 
     bool m_capabilitiesKnown = false;
     bool m_unprivilegedIcmp = false;
+    bool m_systemPing = false;
     bool m_arpCache = false;
 
     QString m_payloadPath;
@@ -156,7 +161,7 @@ private:
     void onFailedToStart(ScanBackend::StartError error);
     void setState(State state);
     void setProgress(int index, const QString &stage, int done, int total);
-    void setCapabilities(bool known, bool unprivilegedIcmp, bool arpCache);
+    void setCapabilities(bool known, bool unprivilegedIcmp, bool systemPing, bool arpCache);
     void setFailure(Failure failure, int exitCode, const QString &detail);
     void setPayload(const QString &path, bool has);
     void setScope(const QStringList &scope);

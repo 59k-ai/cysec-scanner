@@ -135,7 +135,7 @@ ScanEvent logEvent(const QString &level, const QString &message)
     return ev;
 }
 
-ScanEvent scanStart(bool unprivilegedIcmp, bool arpCache = true)
+ScanEvent scanStart(bool unprivilegedIcmp, bool arpCache = true, bool systemPing = true)
 {
     ScanEvent ev;
     ev.kind = ScanEventKind::ScanStart;
@@ -144,6 +144,7 @@ ScanEvent scanStart(bool unprivilegedIcmp, bool arpCache = true)
                  QStringLiteral("fingerprint")};
     ev.hasCapabilities = true;
     ev.capUnprivilegedIcmp = unprivilegedIcmp;
+    ev.capSystemPing = systemPing;
     ev.capArpCache = arpCache;
     return ev;
 }
@@ -317,6 +318,7 @@ void TstSession::capabilitiesFromScanStart()
     b.emitEvent(scanStart(false));
     QVERIFY(s.capabilitiesKnown());
     QVERIFY(!s.unprivilegedIcmp());
+    QVERIFY(s.systemPing());
     QCOMPARE(caps.count(), 1);
 
     // Same values again: no change notification.

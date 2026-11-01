@@ -31,6 +31,7 @@ TestCase {
             property int hostsFound: 0
             property bool capabilitiesKnown: false
             property bool unprivilegedIcmp: true
+            property bool systemPing: true
             property bool arpCache: true
             property bool hasPayload: false
             property string payloadPath: ""
@@ -224,7 +225,7 @@ TestCase {
     // ---- D-21 banner ----------------------------------------------------------
 
     function test_bannerFromEngineInfo() {
-        const view = makeView(makeSession(), "describe-no-icmp.json")
+        const view = makeView(makeSession(), "describe-no-ping.json")
         const banner = child(view, "capabilityBanner")
         verify(banner.visible)
         compare(banner.text, qsTr("Limited discovery: this computer cannot send ICMP pings without extra privileges, so host discovery uses ARP and TCP only. Some hosts may be missing from the results."))
@@ -240,7 +241,21 @@ TestCase {
         // scan_start reports the capability for this run.
         s.capabilitiesKnown = true
         s.unprivilegedIcmp = false
+        s.systemPing = false
         verify(banner.visible)
+    }
+
+    // Windows: no unprivileged socket, but the engine pings through ping.exe,
+    // so discovery is not degraded and the banner must stay hidden.
+    function test_bannerHiddenWithSystemPing() {
+        const s = makeSession()
+        const view = makeView(s, "describe-no-icmp.json")
+        const banner = child(view, "capabilityBanner")
+        verify(!banner.visible)
+        s.capabilitiesKnown = true
+        s.unprivilegedIcmp = false
+        s.systemPing = true
+        verify(!banner.visible)
     }
 
     // ---- macOS hidden MAC addresses ---------------------------------------------
@@ -289,7 +304,7 @@ TestCase {
     }
 
     function test_noElevationControl() {
-        const view = makeView(makeSession(), "describe-no-icmp.json")
+        const view = makeView(makeSession(), "describe-no-ping.json")
         for (const item of allItems(view)) {
             const t = typeof item.text === "string" ? item.text : ""
             const n = item.Accessible ? String(item.Accessible.name ?? "") : ""
@@ -699,7 +714,7 @@ TestCase {
     function test_everyControlNamed() {
         const s = makeSession({ state: ScanSession.Completed, hostsFound: 2 })
         s.hosts = TestData.hostModel(sampleHosts)
-        const view = makeView(s, "describe-no-icmp.json")
+        const view = makeView(s, "describe-no-ping.json")
         child(view, "resultsTable").selectRow(0)
         waitForRendering(view)
         let checked = 0

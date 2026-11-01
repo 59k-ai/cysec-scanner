@@ -107,9 +107,13 @@ Item {
         property url savedUrl
         property string savedPath: ""
 
+        // ICMP discovery is lost only when neither the unprivileged socket nor
+        // the system ping fallback works; Windows always takes the fallback.
         readonly property bool showBanner: !d.bannerDismissed && (
-            (!!root.engineInfo && root.engineInfo.loaded && !root.engineInfo.unprivilegedIcmp)
-            || (!!root.session && root.session.capabilitiesKnown && !root.session.unprivilegedIcmp))
+            (!!root.engineInfo && root.engineInfo.loaded
+                && !root.engineInfo.unprivilegedIcmp && !root.engineInfo.systemPing)
+            || (!!root.session && root.session.capabilitiesKnown
+                && !root.session.unprivilegedIcmp && !root.session.systemPing))
 
         // macOS 27 hides other devices' MAC addresses from programs without
         // administrator rights (the engine reports arp_cache false). The run's

@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -62,20 +63,12 @@ func proBingProbe(ctx context.Context, ip string, timeout time.Duration) (bool, 
 }
 
 // systemPing shells the OS `ping` binary for one echo. It works unprivileged on
-// Linux where the stock binary carries file capabilities. The IP is one of our
-// own CIDR-enumerated hosts, never attacker input, and is passed as a discrete
-// argv element with no shell, so there is no command-injection surface.
+// Linux where the stock binary carries file capabilities, and on Windows where
+// ping.exe needs no rights at all. The IP is one of our own CIDR-enumerated
+// hosts, never attacker input, and is passed as a discrete argv element with no
+// shell, so there is no command-injection surface.
 func systemPing(ctx context.Context, ip string, timeout time.Duration) (bool, int) {
-	var fam []string
-	if strings.Contains(ip, ":") {
-		fam = []string{"-6"}
-	}
-	secs := int(timeout.Seconds())
-	if secs < 1 {
-		secs = 1
-	}
-	args := append(fam, "-c", "1", "-W", strconv.Itoa(secs), "-n", "-q", ip)
-	cmd := exec.CommandContext(ctx, "ping", args...)
+	cmd := exec.CommandContext(ctx, "ping", systemPingArgs(runtime.GOOS, ip, timeout)...)
 	// Force a stable C locale so neither the liveness decision nor the TTL hint
 	// depends on the host's LANG/LC_ALL. The DACH target market commonly runs a
 	// German (de_DE.*) locale, where iputils localizes its stats line ("… 1
@@ -84,7 +77,47 @@ func systemPing(ctx context.Context, ip string, timeout time.Duration) (bool, in
 	// but the forced locale also keeps the TTL "ttl=" token stable.
 	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
 	out, err := cmd.Output()
+	if runtime.GOOS == "windows" {
+		return windowsPingResultLive(out, err)
+	}
 	return pingResultLive(out, err)
+}
+
+// systemPingArgs builds the argv for one echo. Windows ping.exe does not speak
+// the iputils flags: there `-n` is the echo count, `-w` the timeout in
+// milliseconds, and `-c` is refused without administrator rights, so passing
+// the Linux argv made every Windows probe fail and discovery fell back to
+// ARP/TCP only.
+func systemPingArgs(goos, ip string, timeout time.Duration) []string {
+	var fam []string
+	if strings.Contains(ip, ":") {
+		fam = []string{"-6"}
+	}
+	if goos == "windows" {
+		ms := timeout.Milliseconds()
+		if ms < 1 {
+			ms = 1
+		}
+		return append(fam, "-n", "1", "-w", strconv.FormatInt(ms, 10), ip)
+	}
+	secs := int(timeout.Seconds())
+	if secs < 1 {
+		secs = 1
+	}
+	return append(fam, "-c", "1", "-W", strconv.Itoa(secs), "-n", "-q", ip)
+}
+
+// windowsPingResultLive maps a ping.exe run onto (live, ttlHint). Exit 0 alone
+// is not enough on Windows: when the gateway answers "Destination host
+// unreachable" for an absent IPv4 host, ping.exe still exits 0, which would
+// mark the whole subnet live. A real echo reply always carries a "TTL=" token,
+// and that token is not localized (German Windows prints "Antwort von …
+// TTL=64"), so it is the liveness signal here.
+func windowsPingResultLive(out []byte, runErr error) (bool, int) {
+	if runErr != nil || !strings.Contains(strings.ToLower(string(out)), "ttl=") {
+		return false, 0
+	}
+	return true, parseReplyTTL(string(out))
 }
 
 // pingResultLive maps a completed `ping -c 1` run onto (live, ttlHint). Liveness
