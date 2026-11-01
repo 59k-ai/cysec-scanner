@@ -90,3 +90,61 @@ func TestNBStatParse(t *testing.T) {
 		}
 	})
 }
+
+// nbTable builds a names table with one unique <00> workstation name followed by
+// the given statistics block (whose first 6 bytes are the unit ID).
+func nbTable(name string, stats []byte) []byte {
+	rd := []byte{0x01}
+	rd = append(rd, pad15(name)...)
+	rd = append(rd, 0x00)       // suffix <00>
+	rd = append(rd, 0x00, 0x00) // flags: unique
+	return append(rd, stats...)
+}
+
+// stats46 returns a 46-byte NBSTAT statistics block starting with unit id.
+func stats46(unit ...byte) []byte {
+	b := make([]byte, 46)
+	copy(b, unit)
+	return b
+}
+
+// TestNBStatUnitID pins the node-status unit ID (the 6 bytes after the names
+// table) as a MAC source: a Windows host reports its adapter MAC there. The value
+// is self-reported by the host, so it is shape-validated like an ARP entry: the
+// all-zero ID (Samba's usual answer), group (broadcast/multicast) IDs and a
+// statistics block too short to hold an ID yield no MAC, without affecting the
+// name.
+func TestNBStatUnitID(t *testing.T) {
+	cases := []struct {
+		name    string
+		rdata   []byte
+		wantNm  string
+		wantMAC string
+	}{
+		{"windows unit id", nbTable("WORKSTATION", stats46(0x00, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e)),
+			"WORKSTATION", "00:1a:2b:3c:4d:5e"},
+		{"samba all-zero unit id", nbTable("NAS", stats46()), "NAS", ""},
+		{"broadcast unit id", nbTable("X", stats46(0xff, 0xff, 0xff, 0xff, 0xff, 0xff)), "X", ""},
+		{"multicast unit id", nbTable("X", stats46(0x01, 0x00, 0x5e, 0x00, 0x00, 0xfb)), "X", ""},
+		{"stats too short for a unit id", nbTable("SHORT", []byte{0x00, 0x1a, 0x2b}), "SHORT", ""},
+		{"no stats block", nbTable("BARE", nil), "BARE", ""},
+	}
+	for _, c := range cases {
+		got := parseNBStatStatus(nbReply(c.rdata))
+		if got.Name != c.wantNm || got.MAC != c.wantMAC {
+			t.Errorf("%s: got {%q %q}, want {%q %q}", c.name, got.Name, got.MAC, c.wantNm, c.wantMAC)
+		}
+	}
+
+	// A names table that declares more entries than it holds is malformed: no
+	// name and no unit id are trusted.
+	bad := []byte{0x03}
+	bad = append(bad, pad15("ONE")...)
+	bad = append(bad, 0x00, 0x00, 0x00)
+	if got := parseNBStatStatus(nbReply(bad)); got.MAC != "" {
+		t.Errorf("overrunning table: MAC = %q, want empty", got.MAC)
+	}
+	if got := parseNBStatStatus([]byte{0x00}); got != (NetBIOSStatus{}) {
+		t.Errorf("truncated reply: got %+v, want zero", got)
+	}
+}

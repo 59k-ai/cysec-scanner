@@ -23,7 +23,7 @@ import (
 func TestMain(m *testing.M) {
 	resolveRDNS = func(context.Context, string, time.Duration) string { return "" }
 	resolveMDNS = func(context.Context, string, time.Duration) string { return "" }
-	resolveNetBIOS = func(context.Context, string, time.Duration) string { return "" }
+	resolveNetBIOS = func(context.Context, string, time.Duration) netutil.NetBIOSStatus { return netutil.NetBIOSStatus{} }
 	os.Exit(m.Run())
 }
 
@@ -331,11 +331,11 @@ func TestEnrichHostnames(t *testing.T) {
 		}
 		return ""
 	}
-	resolveNetBIOS = func(_ context.Context, ip string, _ time.Duration) string {
+	resolveNetBIOS = func(_ context.Context, ip string, _ time.Duration) netutil.NetBIOSStatus {
 		if ip == "10.0.0.7" {
-			return "WORKSTATION7" // wins (no rDNS, no mDNS)
+			return netutil.NetBIOSStatus{Name: "WORKSTATION7"} // wins (no rDNS, no mDNS)
 		}
-		return ""
+		return netutil.NetBIOSStatus{}
 	}
 
 	entries := map[string]hostEntry{
@@ -539,5 +539,64 @@ func TestDetectDegrade(t *testing.T) {
 	assets := assertStrictValid(t, marshalToMap(t, st))
 	if len(assets) != 0 {
 		t.Fatalf("fully-degraded run produced %d assets, want 0", len(assets))
+	}
+}
+
+// TestEnrichNetBIOSUnitIDMAC proves the NetBIOS node-status unit ID fills the MAC
+// only where the ARP cache gave none (macOS 27 hides the cache without
+// administrator rights). An ARP MAC always wins, so Linux/Windows output is
+// unchanged where ARP answered; a routed host keeps the DISC-03 null MAC and
+// sentinel; the external id is not re-keyed for a self-reported MAC.
+func TestEnrichNetBIOSUnitIDMAC(t *testing.T) {
+	origR, origM, origN := resolveRDNS, resolveMDNS, resolveNetBIOS
+	defer func() { resolveRDNS, resolveMDNS, resolveNetBIOS = origR, origM, origN }()
+	resolveRDNS = func(context.Context, string, time.Duration) string { return "" }
+	resolveMDNS = func(context.Context, string, time.Duration) string { return "" }
+	resolveNetBIOS = func(_ context.Context, ip string, _ time.Duration) netutil.NetBIOSStatus {
+		// Every host claims a MAC; only the eligible ones may take it.
+		return netutil.NetBIOSStatus{Name: "WIN", MAC: "74:24:9f:00:00:07"}
+	}
+
+	arpMAC := "aa:bb:cc:00:00:01"
+	arpVendor := "ARP Vendor"
+	entries := map[string]hostEntry{
+		"ip:10.0.0.7":    {ip: "10.0.0.7"},
+		"mac:" + arpMAC:  {ip: "10.0.0.8", mac: &arpMAC, macVendor: &arpVendor},
+		"ip:203.0.113.9": {ip: "203.0.113.9", routed: true},
+	}
+	enrichHostnames(context.Background(), entries)
+
+	h := entries["ip:10.0.0.7"]
+	if h.mac == nil || *h.mac != "74:24:9f:00:00:07" {
+		t.Fatalf("no-ARP host mac = %v, want the NetBIOS unit id", h.mac)
+	}
+	if h.macVendor == nil || *h.macVendor != "TIBRO Corp." {
+		t.Errorf("no-ARP host vendor = %v, want TIBRO Corp. (OUI 74249F)", h.macVendor)
+	}
+	if !h.macFromNetBIOS {
+		t.Error("no-ARP host must record the MAC as NetBIOS self-reported")
+	}
+	a := buildAsset("ip:10.0.0.7", h)
+	classifyAsset(&a, h)
+	if a.ExternalID != "ip:10.0.0.7" {
+		t.Errorf("external id = %q, want ip:10.0.0.7 (no re-key on a self-reported MAC)", a.ExternalID)
+	}
+	if got := a.Classification.Evidence[evidenceKeyMACSource]; got != evidenceValueMACNetBIOS {
+		t.Errorf("evidence[%s] = %q, want %q", evidenceKeyMACSource, got, evidenceValueMACNetBIOS)
+	}
+
+	arp := entries["mac:"+arpMAC]
+	if arp.mac == nil || *arp.mac != arpMAC || arp.macFromNetBIOS {
+		t.Errorf("ARP host changed: mac=%v fromNetBIOS=%v, want ARP MAC kept", arp.mac, arp.macFromNetBIOS)
+	}
+	aa := buildAsset("mac:"+arpMAC, arp)
+	classifyAsset(&aa, arp)
+	if _, ok := aa.Classification.Evidence[evidenceKeyMACSource]; ok {
+		t.Error("ARP-sourced MAC must not carry a mac_source evidence key (output unchanged)")
+	}
+
+	r := entries["ip:203.0.113.9"]
+	if r.mac != nil || r.macFromNetBIOS {
+		t.Errorf("routed host mac = %v, want nil (DISC-03 sentinel kept)", r.mac)
 	}
 }
