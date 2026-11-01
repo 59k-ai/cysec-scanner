@@ -345,6 +345,14 @@
         <translation>Hosts filtern</translation>
     </message>
     <message>
+        <source>Hidden by macOS</source>
+        <translation>Von macOS verborgen</translation>
+    </message>
+    <message>
+        <source>Not available on macOS without administrator rights</source>
+        <translation>Unter macOS ohne Administratorrechte nicht verfügbar</translation>
+    </message>
+    <message>
         <source>Saved to %1</source>
         <translation>Gespeichert unter %1</translation>
     </message>

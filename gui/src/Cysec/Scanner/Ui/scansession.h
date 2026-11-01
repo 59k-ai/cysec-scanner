@@ -43,6 +43,9 @@ class ScanSession : public QObject
 
     Q_PROPERTY(bool capabilitiesKnown READ capabilitiesKnown NOTIFY capabilitiesChanged FINAL)
     Q_PROPERTY(bool unprivilegedIcmp READ unprivilegedIcmp NOTIFY capabilitiesChanged FINAL)
+    // False when this run could not read the neighbour cache (macOS 27 hides it
+    // from processes without administrator rights), so MACs stay empty.
+    Q_PROPERTY(bool arpCache READ arpCache NOTIFY capabilitiesChanged FINAL)
 
     Q_PROPERTY(bool hasPayload READ hasPayload NOTIFY payloadChanged FINAL)
     Q_PROPERTY(QString payloadPath READ payloadPath NOTIFY payloadChanged FINAL)
@@ -88,6 +91,7 @@ public:
 
     bool capabilitiesKnown() const;
     bool unprivilegedIcmp() const;
+    bool arpCache() const;
 
     bool hasPayload() const;
     QString payloadPath() const;
@@ -135,6 +139,7 @@ private:
 
     bool m_capabilitiesKnown = false;
     bool m_unprivilegedIcmp = false;
+    bool m_arpCache = false;
 
     QString m_payloadPath;
 
@@ -151,7 +156,7 @@ private:
     void onFailedToStart(ScanBackend::StartError error);
     void setState(State state);
     void setProgress(int index, const QString &stage, int done, int total);
-    void setCapabilities(bool known, bool unprivilegedIcmp);
+    void setCapabilities(bool known, bool unprivilegedIcmp, bool arpCache);
     void setFailure(Failure failure, int exitCode, const QString &detail);
     void setPayload(const QString &path, bool has);
     void setScope(const QStringList &scope);

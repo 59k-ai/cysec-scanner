@@ -29,6 +29,8 @@ Item {
 
     property var session
     property var engineInfo
+    // Host OS (Qt.platform.os); a property so tests can exercise the macOS copy.
+    property string platformOs: Qt.platform.os
     readonly property string windowTitle: qsTr("Cysec Scanner")
     // THIRD_PARTY_NOTICES text, read by the app in C++ (no QML file access).
     property string noticesText
@@ -108,6 +110,14 @@ Item {
         readonly property bool showBanner: !d.bannerDismissed && (
             (!!root.engineInfo && root.engineInfo.loaded && !root.engineInfo.unprivilegedIcmp)
             || (!!root.session && root.session.capabilitiesKnown && !root.session.unprivilegedIcmp))
+
+        // macOS 27 hides other devices' MAC addresses from programs without
+        // administrator rights (the engine reports arp_cache false). The run's
+        // scan_start capabilities win over --describe once known.
+        readonly property bool macHiddenByOs: (root.platformOs === "osx" || root.platformOs === "macos")
+            && (!!root.session && root.session.capabilitiesKnown
+                ? !root.session.arpCache
+                : (!!root.engineInfo && root.engineInfo.loaded && !root.engineInfo.arpCache))
 
         readonly property string failureText: {
             if (!root.session || d.state !== ScanSession.Failed)
@@ -422,6 +432,9 @@ Item {
                     Layout.fillHeight: true
                     model: root.session ? root.session.hosts : null
                     filterText: filterField.text
+                    macUnavailableText: d.macHiddenByOs ? qsTr("Hidden by macOS") : ""
+                    macUnavailableDetail: d.macHiddenByOs
+                        ? qsTr("Not available on macOS without administrator rights") : ""
                     emptyTitle: d.emptyTitle
                     emptyBody: d.emptyBody
                     onHostActivated: detail.forceActiveFocus(Qt.TabFocusReason)
@@ -435,6 +448,8 @@ Item {
                 SplitView.minimumWidth: 280
                 SplitView.maximumWidth: 560
                 host: results.currentHost
+                macUnavailableText: d.macHiddenByOs
+                    ? qsTr("Not available on macOS without administrator rights") : ""
             }
         }
 

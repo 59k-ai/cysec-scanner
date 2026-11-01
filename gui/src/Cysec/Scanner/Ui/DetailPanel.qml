@@ -18,6 +18,13 @@ Item {
     id: root
 
     property var host
+    // When set, shown instead of "Unknown" in the MAC address and MAC vendor
+    // rows of a host without a MAC (macOS hides other devices' MACs from
+    // programs without administrator rights).
+    property string macUnavailableText
+
+    readonly property bool macHidden: hasHost && macUnavailableText.length > 0
+                                      && !((host.mac ?? "").length > 0)
 
     default property alias sections: extraSections.data
 
@@ -115,6 +122,7 @@ Item {
         property string label
         property string value
         property bool mono: false
+        property string unknownText: qsTr("Unknown")
 
         Layout.fillWidth: true
         spacing: 2
@@ -134,7 +142,7 @@ Item {
             FactValue {
                 Layout.fillWidth: true
                 objectName: "fact_" + factRow.label
-                text: factRow.value.length > 0 ? factRow.value : qsTr("Unknown")
+                text: factRow.value.length > 0 ? factRow.value : factRow.unknownText
                 unknown: factRow.value.length === 0
                 mono: factRow.mono
                 Accessible.name: factRow.label
@@ -222,10 +230,12 @@ Item {
                     label: qsTr("MAC address")
                     value: root.hasHost ? (root.host.mac ?? "") : ""
                     mono: true
+                    unknownText: root.macHidden ? root.macUnavailableText : qsTr("Unknown")
                 }
                 FactRow {
                     label: qsTr("MAC vendor")
                     value: root.hasHost ? (root.host.vendor ?? "") : ""
+                    unknownText: root.macHidden ? root.macUnavailableText : qsTr("Unknown")
                 }
                 FactRow {
                     label: qsTr("OS guess")

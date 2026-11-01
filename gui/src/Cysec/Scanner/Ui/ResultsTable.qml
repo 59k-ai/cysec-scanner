@@ -23,6 +23,13 @@ Item {
     property string filterText
     property var currentHost
 
+    // When set, replaces "Unknown" in the MAC vendor (and MAC) column for a
+    // host without a MAC: macOS 27 hides other devices' MAC addresses from
+    // programs without administrator rights. macUnavailableDetail is the
+    // fuller wording shown as the cell's tooltip and accessible description.
+    property string macUnavailableText
+    property string macUnavailableDetail
+
     // Empty-state copy, supplied by the caller for the current scan state.
     property string emptyTitle
     property string emptyBody
@@ -301,12 +308,17 @@ Item {
             readonly property bool unknown: display === undefined || display === null
                                             || String(display).length === 0
             readonly property var spec: root.effectiveColumns[column] ?? ({})
+            // Unknown because the OS hid the MAC, not because nothing answered.
+            readonly property bool macHidden: unknown && root.macUnavailableText.length > 0
+                                              && (spec.role === "vendor" || spec.role === "mac")
+                                              && !((adapter.rowData(row).mac ?? "").length > 0)
 
             implicitHeight: Theme.rowHeight
             color: selected ? Theme.accentTint : (row % 2 === 1 ? Theme.zebra : Theme.surface)
 
             Accessible.role: Accessible.Cell
             Accessible.name: cellText.text
+            Accessible.description: cell.macHidden ? root.macUnavailableDetail : ""
 
             Rectangle {
                 // Selection edge on the first column only.
@@ -325,7 +337,8 @@ Item {
                 verticalAlignment: Text.AlignVCenter
                 mono: cell.spec.mono === true && !cell.unknown
                 font.pixelSize: Theme.fontSizeLabel
-                text: cell.unknown ? qsTr("Unknown") : String(cell.display)
+                text: cell.macHidden ? root.macUnavailableText
+                                     : (cell.unknown ? qsTr("Unknown") : String(cell.display))
                 color: cell.unknown ? Theme.muted : Theme.ink
                 Accessible.ignored: true
             }
@@ -333,9 +346,11 @@ Item {
             HoverHandler {
                 id: hover
                 onHoveredChanged: {
-                    if (hover.hovered && cellText.truncated) {
+                    const tip = cell.macHidden && root.macUnavailableDetail.length > 0
+                        ? root.macUnavailableDetail : cellText.text
+                    if (hover.hovered && (cellText.truncated || tip !== cellText.text)) {
                         cellTip.parent = cell
-                        cellTip.text = cellText.text
+                        cellTip.text = tip
                         cellTip.open()
                     } else if (cellTip.parent === cell) {
                         cellTip.close()

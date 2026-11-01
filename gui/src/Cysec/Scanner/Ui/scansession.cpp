@@ -149,6 +149,11 @@ bool ScanSession::unprivilegedIcmp() const
     return m_unprivilegedIcmp;
 }
 
+bool ScanSession::arpCache() const
+{
+    return m_arpCache;
+}
+
 bool ScanSession::hasPayload() const
 {
     return m_hasPayload;
@@ -262,7 +267,7 @@ void ScanSession::onEvent(const ScanEvent &event)
     switch (event.kind) {
     case ScanEventKind::ScanStart:
         if (event.hasCapabilities)
-            setCapabilities(true, event.capUnprivilegedIcmp);
+            setCapabilities(true, event.capUnprivilegedIcmp, event.capArpCache);
         if (!event.scope.isEmpty())
             setScope(event.scope);
         break;
@@ -404,12 +409,14 @@ void ScanSession::setProgress(int index, const QString &stage, int done, int tot
     emit progressChanged();
 }
 
-void ScanSession::setCapabilities(bool known, bool unprivilegedIcmp)
+void ScanSession::setCapabilities(bool known, bool unprivilegedIcmp, bool arpCache)
 {
-    if (known == m_capabilitiesKnown && unprivilegedIcmp == m_unprivilegedIcmp)
+    if (known == m_capabilitiesKnown && unprivilegedIcmp == m_unprivilegedIcmp
+        && arpCache == m_arpCache)
         return;
     m_capabilitiesKnown = known;
     m_unprivilegedIcmp = unprivilegedIcmp;
+    m_arpCache = arpCache;
     emit capabilitiesChanged();
 }
 
@@ -482,7 +489,7 @@ void ScanSession::resetResults()
     m_log->clear();
     updateHostsFound();
     setProgress(kNoStage, QString(), 0, 0);
-    setCapabilities(false, false);
+    setCapabilities(false, false, false);
     setPayload(QString(), false);
     setFailure(NoFailure, 0, QString());
     m_partial = false;
