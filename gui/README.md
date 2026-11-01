@@ -77,6 +77,22 @@ If a scan straight after a rebuild finds only the router and this Mac, quit
 the app and start it again. The setting is under System Settings > Privacy &
 Security > Local Network.
 
+### macOS: MAC addresses and vendors
+
+macOS 27 shows the MAC addresses of other devices only to programs that run
+with administrator rights; Local Network permission does not include them.
+The app does not ask for those rights, so on macOS the MAC vendor column reads
+"Hidden by macOS" and the detail panel says "Not available on macOS without
+administrator rights" for hosts without a MAC. Linux and Windows are not
+affected.
+
+To see MAC addresses and vendors on macOS, run the command-line engine with
+`sudo` (see the repository README, "MAC addresses on macOS"):
+
+```sh
+sudo gui/build/cysec-scanner --cidr 192.168.1.0/24 --payload-out scan.json
+```
+
 ## Test
 
 ```sh
