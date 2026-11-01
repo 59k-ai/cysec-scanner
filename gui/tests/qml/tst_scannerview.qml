@@ -31,6 +31,7 @@ TestCase {
             property int hostsFound: 0
             property bool capabilitiesKnown: false
             property bool unprivilegedIcmp: true
+            property bool arpCache: true
             property bool hasPayload: false
             property string payloadPath: ""
             property bool partial: false
@@ -240,6 +241,51 @@ TestCase {
         s.capabilitiesKnown = true
         s.unprivilegedIcmp = false
         verify(banner.visible)
+    }
+
+    // ---- macOS hidden MAC addresses ---------------------------------------------
+
+    function makeViewOn(os, session, fixture) {
+        const info = TestData.engineInfo(fixture)
+        const view = createTemporaryObject(viewComponent, testCase,
+                                           { session: session, engineInfo: info,
+                                             noticesText: "NOTICES", platformOs: os })
+        verify(view)
+        waitForRendering(view)
+        return view
+    }
+
+    function test_macHiddenOnMacWithoutArpCache() {
+        const view = makeViewOn("osx", makeSession(), "describe-no-arp.json")
+        compare(child(view, "resultsTable").macUnavailableText, qsTr("Hidden by macOS"))
+        compare(child(view, "resultsTable").macUnavailableDetail,
+                qsTr("Not available on macOS without administrator rights"))
+        compare(child(view, "detailPanel").macUnavailableText,
+                qsTr("Not available on macOS without administrator rights"))
+    }
+
+    function test_macNotHiddenWithArpCache() {
+        const view = makeViewOn("osx", makeSession(), "describe-full.json")
+        compare(child(view, "resultsTable").macUnavailableText, "")
+        compare(child(view, "detailPanel").macUnavailableText, "")
+    }
+
+    function test_macNotHiddenOffMac() {
+        const view = makeViewOn("linux", makeSession(), "describe-no-arp.json")
+        compare(child(view, "resultsTable").macUnavailableText, "")
+        compare(child(view, "detailPanel").macUnavailableText, "")
+    }
+
+    // The run's own scan_start capabilities win over --describe.
+    function test_macHiddenFollowsRunCapabilities() {
+        const s = makeSession()
+        const view = makeViewOn("osx", s, "describe-full.json")
+        compare(child(view, "resultsTable").macUnavailableText, "")
+        s.capabilitiesKnown = true
+        s.arpCache = false
+        compare(child(view, "resultsTable").macUnavailableText, qsTr("Hidden by macOS"))
+        s.arpCache = true
+        compare(child(view, "resultsTable").macUnavailableText, "")
     }
 
     function test_noElevationControl() {

@@ -135,7 +135,7 @@ ScanEvent logEvent(const QString &level, const QString &message)
     return ev;
 }
 
-ScanEvent scanStart(bool unprivilegedIcmp)
+ScanEvent scanStart(bool unprivilegedIcmp, bool arpCache = true)
 {
     ScanEvent ev;
     ev.kind = ScanEventKind::ScanStart;
@@ -144,6 +144,7 @@ ScanEvent scanStart(bool unprivilegedIcmp)
                  QStringLiteral("fingerprint")};
     ev.hasCapabilities = true;
     ev.capUnprivilegedIcmp = unprivilegedIcmp;
+    ev.capArpCache = arpCache;
     return ev;
 }
 
@@ -207,6 +208,7 @@ private slots:
     void startBuildsRequestAndClears();
     void startWhileRunningIgnored();
     void capabilitiesFromScanStart();
+    void arpCacheFromScanStart();
     void stageProgressFromEvents();
     void stageMappingExtraAgents();
     void hostEventsCountAfterFlush();
@@ -320,6 +322,26 @@ void TstSession::capabilitiesFromScanStart()
     // Same values again: no change notification.
     b.emitEvent(scanStart(false));
     QCOMPARE(caps.count(), 1);
+}
+
+// The run's arp_cache flag (false when macOS hides the neighbour cache) is
+// exposed so the view can explain an empty MAC column, and reset on a new scan.
+void TstSession::arpCacheFromScanStart()
+{
+    FakeBackend b;
+    ScanSession s;
+    s.setBackend(&b);
+    QVERIFY(!s.arpCache());
+    s.start({QStringLiteral("192.0.2.0/24")}, QString(), false);
+    QSignalSpy caps(&s, &ScanSession::capabilitiesChanged);
+    b.emitEvent(scanStart(true, true));
+    QVERIFY(s.arpCache());
+    QCOMPARE(caps.count(), 1);
+
+    // Only the ARP flag changes: still one notification for the change.
+    b.emitEvent(scanStart(true, false));
+    QVERIFY(!s.arpCache());
+    QCOMPARE(caps.count(), 2);
 }
 
 void TstSession::stageProgressFromEvents()

@@ -141,6 +141,31 @@ Item {
             compare(cell(t, 0, 4).text, "Unknown")
         }
 
+        // macOS 27 hides other devices' MACs from processes without
+        // administrator rights. The caller passes a short cell text; it
+        // replaces "Unknown" in the MAC vendor column only for a host with no
+        // MAC. A host whose MAC is known but unregistered stays "Unknown".
+        function test_macHiddenByOsReplacesUnknownVendor() {
+            const model = TestData.hostModel([
+                { ip: "192.0.2.1", hostname: "", vendor: "", osGuess: "" },
+                { ip: "192.0.2.2", hostname: "", mac: "02:00:5e:10:00:01", vendor: "",
+                  osGuess: "" }
+            ])
+            const t = createTemporaryObject(tableComponent, tableCase,
+                                            { model: model,
+                                              macUnavailableText: "Hidden by macOS",
+                                              macUnavailableDetail: "Not available on macOS without administrator rights" })
+            verify(t)
+            const view = findChild(t, "hostTable")
+            tryVerify(() => view.rows === 2)
+            waitForRendering(t)
+            const hidden = cell(t, 0, 2)
+            compare(hidden.text, "Hidden by macOS")
+            compare(hidden.color, Theme.muted)
+            compare(cell(t, 1, 2).text, "Unknown")
+            compare(cell(t, 0, 4).text, "Unknown")
+        }
+
         function test_neutralColoursOnly() {
             // D-14: no risk colours, even for 23/445/3389.
             const t = makeTable({})
@@ -344,6 +369,28 @@ Item {
             verify(names.indexOf("Copy 22/tcp") >= 0, names.join("|"))
             // Unknown values have nothing to copy.
             verify(names.indexOf("Copy MAC vendor") < 0, names.join("|"))
+        }
+
+        // The detail panel spells the macOS reason out for both MAC rows of a
+        // host without a MAC, and leaves other unknown facts as "Unknown".
+        function test_macHiddenByOs() {
+            const text = "Not available on macOS without administrator rights"
+            const h = { ip: "192.0.2.1", hostname: "", vendor: "", osGuess: "", services: [] }
+            const p = createTemporaryObject(detailComponent, detailCase,
+                                            { host: h, macUnavailableText: text })
+            const mac = findChild(p, "fact_MAC address")
+            compare(mac.text, text)
+            compare(mac.color, Theme.muted)
+            compare(findChild(p, "fact_MAC vendor").text, text)
+            compare(findChild(p, "fact_OS guess").text, "Unknown")
+        }
+
+        function test_macKnownKeepsUnknownVendor() {
+            const p = createTemporaryObject(detailComponent, detailCase,
+                                            { host: sampleHost(),
+                                              macUnavailableText: "Not available on macOS without administrator rights" })
+            compare(findChild(p, "fact_MAC address").text, "00:11:22:33:44:55")
+            compare(findChild(p, "fact_MAC vendor").text, "Unknown")
         }
 
         function test_sectionsSlot() {
