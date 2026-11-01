@@ -16,7 +16,9 @@ import "github.com/59k-ai/cysec-scanner/payload"
 //                       is true — an absent flag means the signal is simply not
 //                       there, never a fabricated false one)
 //   - mac_source      ← "netbios_self_reported" when the MAC came from a NetBIOS
-//                       node-status unit ID instead of the ARP cache
+//                       node-status unit ID, or "local_interface" when it came
+//                       from this machine's own interface, instead of the ARP
+//                       cache
 //
 // The asset_type stays "unknown" this phase (D-02): the full deterministic
 // rule engine needs open-port data that arrives in a later phase, so discovery
@@ -38,12 +40,15 @@ const (
 	evidenceKeyMDNS        = "mdns"
 	evidenceKeyNetBIOS     = "netbios"
 	// evidenceKeyMACSource records where a MAC came from when it is not the ARP
-	// cache. Only set for a NetBIOS unit-ID MAC, so ARP-sourced output is
-	// unchanged.
+	// cache. Only set when a MAC did not come from the cache (NetBIOS unit ID or
+	// this machine's own interface), so cache-sourced output is unchanged.
 	evidenceKeyMACSource = "mac_source"
 	// evidenceValueMACNetBIOS marks a MAC self-reported in a NetBIOS
 	// node-status reply.
 	evidenceValueMACNetBIOS = "netbios_self_reported"
+	// evidenceValueMACLocalInterface marks a MAC read from this machine's own
+	// interface list for one of its own addresses.
+	evidenceValueMACLocalInterface = "local_interface"
 	// evidenceValuePresent is the value for a presence-only signal (mdns/netbios):
 	// the flag answered, so the signal is recorded as observed.
 	evidenceValuePresent = "present"
@@ -106,6 +111,9 @@ func classifyAsset(a *payload.AssetItem, e hostEntry) {
 	}
 	if e.macFromNetBIOS {
 		c.Evidence[evidenceKeyMACSource] = evidenceValueMACNetBIOS
+	}
+	if e.macFromLocalInterface {
+		c.Evidence[evidenceKeyMACSource] = evidenceValueMACLocalInterface
 	}
 
 	c.AssetType = assetTypeUnknown

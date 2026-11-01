@@ -18,12 +18,15 @@ import (
 )
 
 // TestMain defaults the hostname-resolver seams to no-ops so Run-based tests do
-// no real DNS/mDNS/NetBIOS network I/O. Hostname-specific tests override the
-// seams explicitly and restore them.
+// no real DNS/mDNS/NetBIOS network I/O, and empties the own-interface MAC seam
+// so no test reads the developer machine's real interfaces (a fixture subnet can
+// be the developer's own LAN). Tests that need either override the seams
+// explicitly and restore them.
 func TestMain(m *testing.M) {
 	resolveRDNS = func(context.Context, string, time.Duration) string { return "" }
 	resolveMDNS = func(context.Context, string, time.Duration) string { return "" }
 	resolveNetBIOS = func(context.Context, string, time.Duration) netutil.NetBIOSStatus { return netutil.NetBIOSStatus{} }
+	localInterfaceMACs = func() map[string]string { return map[string]string{} }
 	os.Exit(m.Run())
 }
 
@@ -606,4 +609,173 @@ func TestEnrichNetBIOSUnitIDMAC(t *testing.T) {
 	if off := entries["ip:198.51.100.4"]; off.mac != nil {
 		t.Errorf("off-segment host mac = %v, want nil (unit ID used on local segments only)", off.mac)
 	}
+}
+
+// TestEnrichLocalInterfaceMAC proves the own-interface fill: an own IP with no
+// MAC takes its interface's MAC and OUI vendor and is re-keyed to mac:<mac>; a
+// secondary own IP sharing that MAC keeps its ip: id (claimed-MAC guard); an ARP
+// MAC is never overridden; a routed host keeps the DISC-03 null MAC; a host that
+// is not this machine is untouched.
+func TestEnrichLocalInterfaceMAC(t *testing.T) {
+	arpMAC := "aa:bb:cc:00:00:01"
+	arpVendor := "ARP Vendor"
+	entries := map[string]hostEntry{
+		"ip:10.0.0.30":   {ip: "10.0.0.30"},
+		"ip:10.0.0.31":   {ip: "10.0.0.31"},
+		"mac:" + arpMAC:  {ip: "10.0.0.32", mac: &arpMAC, macVendor: &arpVendor},
+		"ip:203.0.113.9": {ip: "203.0.113.9", routed: true},
+		"ip:10.0.0.40":   {ip: "10.0.0.40"},
+	}
+	own := map[string]string{
+		"10.0.0.30":   "74:24:9f:00:00:30",
+		"10.0.0.31":   "74:24:9f:00:00:30",
+		"10.0.0.32":   "74:24:9f:00:00:32",
+		"203.0.113.9": "74:24:9f:00:00:99",
+	}
+	enrichLocalMAC(entries, own)
+
+	if _, ok := entries["ip:10.0.0.30"]; ok {
+		t.Error("ip:10.0.0.30 still present, want it re-keyed to mac:74:24:9f:00:00:30")
+	}
+	h, ok := entries["mac:74:24:9f:00:00:30"]
+	if !ok {
+		t.Fatalf("mac:74:24:9f:00:00:30 missing; keys = %v", entryKeys(entries))
+	}
+	if h.ip != "10.0.0.30" || h.mac == nil || *h.mac != "74:24:9f:00:00:30" {
+		t.Errorf("own host = ip %q mac %v, want 10.0.0.30 with its interface MAC", h.ip, h.mac)
+	}
+	if h.macVendor == nil || *h.macVendor != "TIBRO Corp." {
+		t.Errorf("own host vendor = %v, want TIBRO Corp. (OUI 74249F)", h.macVendor)
+	}
+	if !h.macFromLocalInterface {
+		t.Error("own host must record the MAC as taken from the local interface")
+	}
+
+	sec, ok := entries["ip:10.0.0.31"]
+	if !ok {
+		t.Fatalf("ip:10.0.0.31 missing (claimed-MAC guard must keep the secondary address); keys = %v", entryKeys(entries))
+	}
+	if sec.mac == nil || *sec.mac != "74:24:9f:00:00:30" || !sec.macFromLocalInterface {
+		t.Errorf("secondary own IP mac = %v fromLocal = %v, want the shared MAC and the flag", sec.mac, sec.macFromLocalInterface)
+	}
+
+	arp := entries["mac:"+arpMAC]
+	if arp.mac == nil || *arp.mac != arpMAC || arp.macFromLocalInterface {
+		t.Errorf("ARP host changed: mac = %v fromLocal = %v, want the ARP MAC kept", arp.mac, arp.macFromLocalInterface)
+	}
+	if r := entries["ip:203.0.113.9"]; r.mac != nil || !r.routed || r.macFromLocalInterface {
+		t.Errorf("routed host = mac %v routed %v, want a nil MAC and routed kept (DISC-03)", r.mac, r.routed)
+	}
+	if o := entries["ip:10.0.0.40"]; o.mac != nil || o.macFromLocalInterface {
+		t.Errorf("non-own host mac = %v, want nil", o.mac)
+	}
+
+	a := buildAsset("mac:74:24:9f:00:00:30", h)
+	classifyAsset(&a, h)
+	if a.ExternalID != "mac:74:24:9f:00:00:30" {
+		t.Errorf("external id = %q, want mac:74:24:9f:00:00:30", a.ExternalID)
+	}
+	if got := a.Classification.Evidence[evidenceKeyMACSource]; got != evidenceValueMACLocalInterface {
+		t.Errorf("evidence[%s] = %q, want %q", evidenceKeyMACSource, got, evidenceValueMACLocalInterface)
+	}
+	if got := a.Classification.Evidence[evidenceKeyMACVendor]; got != "TIBRO Corp." {
+		t.Errorf("evidence[%s] = %q, want TIBRO Corp.", evidenceKeyMACVendor, got)
+	}
+	aa := buildAsset("mac:"+arpMAC, arp)
+	classifyAsset(&aa, arp)
+	if _, ok := aa.Classification.Evidence[evidenceKeyMACSource]; ok {
+		t.Error("ARP-sourced MAC must not carry a mac_source evidence key")
+	}
+}
+
+// TestRunFillsOwnHostMAC proves the fill end to end through Run: the scanning
+// machine's own IP, which is never in its own neighbour cache, comes out with
+// its interface MAC, vendor and mac_source=local_interface whether or not the
+// ARP cache is readable.
+func TestRunFillsOwnHostMAC(t *testing.T) {
+	origSweep, origARP, origLocal, origOwn := sweepHosts, arpTable, localNetworks, localInterfaceMACs
+	defer func() {
+		sweepHosts, arpTable, localNetworks, localInterfaceMACs = origSweep, origARP, origLocal, origOwn
+	}()
+	sweepHosts = func(context.Context, []string, capabilities.Capabilities, netutil.PingFunc) []netutil.SweepResult {
+		return []netutil.SweepResult{{IP: "10.0.0.5", TTL: 64}, {IP: "10.0.0.30", TTL: 64}}
+	}
+	arpTable = func() map[string]string { return map[string]string{"10.0.0.5": "28:6f:b9:00:00:01"} }
+	localNetworks = func() []string { return []string{"10.0.0.0/24"} }
+	localInterfaceMACs = func() map[string]string { return map[string]string{"10.0.0.30": "74:24:9f:00:00:30"} }
+
+	for _, tc := range []struct {
+		name     string
+		arpCache bool
+	}{
+		{"arp_cache_readable", true},
+		{"arp_cache_hidden", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := scanstate.New("full", "engine/test")
+			caps := capabilities.Capabilities{ARPCache: tc.arpCache}
+			if err := Run(context.Background(), st, caps, []string{"10.0.0.0/24"}); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			assets := assertStrictValid(t, marshalToMap(t, st))
+			byID := map[string]map[string]any{}
+			for _, a := range assets {
+				am := a.(map[string]any)
+				byID[am["external_id"].(string)] = am
+			}
+
+			own, ok := byID["mac:74:24:9f:00:00:30"]
+			if !ok {
+				t.Fatalf("own host asset missing; ids = %v", keysOf(byID))
+			}
+			if own["ip_address"] != "10.0.0.30" || own["mac_address"] != "74:24:9f:00:00:30" {
+				t.Errorf("own host ip = %v mac = %v, want 10.0.0.30 / 74:24:9f:00:00:30", own["ip_address"], own["mac_address"])
+			}
+			if own["mac_vendor"] != "TIBRO Corp." {
+				t.Errorf("own host mac_vendor = %v, want TIBRO Corp.", own["mac_vendor"])
+			}
+			if got := evidenceOf(t, own)["mac_source"]; got != "local_interface" {
+				t.Errorf("own host evidence mac_source = %v, want local_interface", got)
+			}
+
+			if tc.arpCache {
+				nb, ok := byID["mac:28:6f:b9:00:00:01"]
+				if !ok {
+					t.Fatalf("ARP host asset missing; ids = %v", keysOf(byID))
+				}
+				if _, has := evidenceOf(t, nb)["mac_source"]; has {
+					t.Error("ARP-sourced asset must not carry mac_source")
+				}
+				return
+			}
+			nb, ok := byID["ip:10.0.0.5"]
+			if !ok {
+				t.Fatalf("ip:10.0.0.5 missing with the cache hidden; ids = %v", keysOf(byID))
+			}
+			if nb["mac_address"] != nil {
+				t.Errorf("ip:10.0.0.5 mac_address = %v, want null with the cache hidden", nb["mac_address"])
+			}
+		})
+	}
+}
+
+// evidenceOf returns an asset's classification_evidence.evidence map.
+func evidenceOf(t *testing.T, a map[string]any) map[string]any {
+	t.Helper()
+	c, ok := a["classification_evidence"].(map[string]any)
+	if !ok {
+		t.Fatalf("classification_evidence missing on %v", a["external_id"])
+	}
+	ev, _ := c["evidence"].(map[string]any)
+	return ev
+}
+
+// entryKeys lists a host set's ids for a failure message.
+func entryKeys(entries map[string]hostEntry) []string {
+	ks := make([]string, 0, len(entries))
+	for k := range entries {
+		ks = append(ks, k)
+	}
+	sort.Strings(ks)
+	return ks
 }

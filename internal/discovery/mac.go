@@ -116,6 +116,54 @@ func enrichL2(entries map[string]hostEntry, arp map[string]string, scope, localC
 	}
 }
 
+// enrichLocalMAC fills the MAC of a host that is this machine itself. own maps
+// this machine's IPv4 addresses to their interface MAC (netutil.LocalInterfaceMACs).
+// A host never has its own address in its own neighbour cache, so without this
+// the scanning machine is the one local host that always shows no MAC.
+//
+// A MAC another source already set is never overridden, and a routed host keeps
+// the DISC-03 null MAC and sentinel. Unlike the NetBIOS unit ID, this MAC
+// re-keys the external id to mac:<mac> exactly like the ARP path: the value
+// comes from this machine's own OS interface table, not from what a remote host
+// says about itself, so it is as authoritative as the cache. The same
+// claimed-MAC guard applies, so a secondary address on one interface, or a MAC
+// an ARP-sourced asset already holds, never collapses two assets. The GUI keys
+// rows by IP, so the re-key never duplicates a row.
+func enrichLocalMAC(entries map[string]hostEntry, own map[string]string) {
+	ids := make([]string, 0, len(entries))
+	for id := range entries {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	for _, id := range ids {
+		e, ok := entries[id]
+		if !ok {
+			continue // already re-keyed under a mac:<mac> id earlier this pass
+		}
+		if e.mac != nil || e.routed {
+			continue
+		}
+		mac, isOwn := own[e.ip]
+		if !isOwn {
+			continue
+		}
+		m := mac
+		e.mac = &m
+		e.macVendor = oui.LookupVendor(mac)
+		e.macFromLocalInterface = true
+		macID := "mac:" + mac
+		if macID != id {
+			if _, exists := entries[macID]; !exists {
+				delete(entries, id)
+				entries[macID] = e
+				continue
+			}
+		}
+		entries[id] = e
+	}
+}
+
 // ipInAnyCIDR reports whether ip falls within any of the given IPv4 CIDRs (a bare
 // address is treated as itself). A malformed ip or CIDR is ignored, never a
 // panic — the host simply fails the membership test.

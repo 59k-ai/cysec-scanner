@@ -27,7 +27,8 @@ import (
 // in tests so the end-to-end path can be proven without real packets, OS reads or
 // a live network. sweepHosts enumerates live hosts; arpTable reads the kernel ARP
 // cache; localNetworks reports this host's local segments (used both as the
-// default sweep scope and to decide whether an L2-silent host is routed).
+// default sweep scope and to decide whether an L2-silent host is routed);
+// localInterfaceMACs maps this host's own IPv4 addresses to their interface MAC.
 //
 // sweepHosts keeps the plain Sweep signature so existing overrides stay valid.
 // Its default routes through netutil.SweepObserved with the per-run observer
@@ -39,6 +40,8 @@ var (
 	sweepPing     netutil.PingFunc
 	arpTable      = netutil.ARPTable
 	localNetworks = netutil.LocalLANNetworks
+
+	localInterfaceMACs = netutil.LocalInterfaceMACs
 )
 
 // sweepObserverKey carries a run's netutil.SweepObserver on the context into the
@@ -82,6 +85,9 @@ type hostEntry struct {
 	// macFromNetBIOS marks a MAC taken from the NetBIOS node-status unit ID
 	// (self-reported by the host) rather than the ARP cache.
 	macFromNetBIOS bool
+	// macFromLocalInterface marks a MAC taken from this machine's own interface,
+	// because its own IP is never in its own neighbour cache.
+	macFromLocalInterface bool
 }
 
 // Run resolves the scope, sweeps it, and writes one base AssetItem per live host
@@ -135,6 +141,14 @@ func Run(ctx context.Context, st *scanstate.ScanState, caps capabilities.Capabil
 	if caps.ARPCache {
 		enrichL2(entries, arpTable(), scope, localNetworks())
 	}
+
+	// Own-interface MAC: a result that is one of this machine's own IPs takes the
+	// MAC of the interface carrying it. It runs whether or not the cache was
+	// readable, since the interface list does not depend on it; before the
+	// hostname pass, so the NetBIOS self-reported fallback (which only fills an
+	// empty MAC) can never claim this host; and before AddAsset, so the live host
+	// event and the final asset carry the same identity.
+	enrichLocalMAC(entries, localInterfaceMACs())
 
 	// Hostname enrichment (DISC-04): resolve a human-meaningful name per host via
 	// rDNS, mDNS and NetBIOS. Runs AFTER L2 enrichment (so it keys off the stable

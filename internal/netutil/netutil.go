@@ -46,6 +46,7 @@ type ifaceView struct {
 	name  string
 	flags net.Flags
 	addrs []*net.IPNet
+	hw    net.HardwareAddr // the link's hardware address (nil for tunnels, loopback)
 }
 
 // LANNetwork is one local LAN network together with the interface it was
@@ -108,7 +109,7 @@ func hostIfaceViews() ([]ifaceView, error) {
 				nets = append(nets, ipnet)
 			}
 		}
-		views = append(views, ifaceView{name: ifc.Name, flags: ifc.Flags, addrs: nets})
+		views = append(views, ifaceView{name: ifc.Name, flags: ifc.Flags, addrs: nets, hw: ifc.HardwareAddr})
 	}
 	return views, nil
 }
@@ -167,6 +168,60 @@ func localLANNetworksFrom(views []ifaceView) []string {
 		}
 		seen[n.CIDR] = struct{}{}
 		out = append(out, n.CIDR)
+	}
+	return out
+}
+
+// LocalInterfaceMACs maps each of this host's own IPv4 addresses (dotted form)
+// to the canonical MAC of the interface that carries it. The scanning host's
+// own addresses never appear in its own neighbour cache, so this is the
+// authoritative MAC for a result that is one of this host's IPs. It reads only
+// the OS interface list: no packets, no raw socket, no elevated rights, and the
+// same code path on every platform. On an enumeration error it returns an empty
+// non-nil map, never a panic.
+func LocalInterfaceMACs() map[string]string {
+	views, err := hostIfaceViews()
+	if err != nil {
+		return map[string]string{}
+	}
+	return localInterfaceMACsFrom(views)
+}
+
+// localInterfaceMACsFrom is the pure core of LocalInterfaceMACs over an
+// injectable interface list. Interfaces are visited in name order so an address
+// carried by two interfaces resolves to the same MAC on every run.
+//
+// The overlay-name and point-to-point exclusions of localLANInterfacesFrom are
+// deliberately not applied: they define the sweep scope, not identity. A bridge
+// with a real MAC is still this host's MAC on that segment, and a tunnel has no
+// hardware address, so the MAC check below drops it anyway.
+func localInterfaceMACsFrom(views []ifaceView) map[string]string {
+	sorted := make([]ifaceView, len(views))
+	copy(sorted, views)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].name < sorted[j].name })
+
+	out := map[string]string{}
+	for _, v := range sorted {
+		if v.flags&net.FlagLoopback != 0 {
+			continue
+		}
+		// Same shape-before-trust gate as the ARP cache: an empty, non-48-bit,
+		// all-zero, group or macOS-placeholder address is never reported.
+		mac, ok := normalizeMAC(v.hw.String())
+		if !ok {
+			continue
+		}
+		for _, ipnet := range v.addrs {
+			ip4 := ipnet.IP.To4()
+			if ip4 == nil || ip4.IsLoopback() || ip4.IsUnspecified() {
+				continue
+			}
+			key := ip4.String()
+			if _, taken := out[key]; taken {
+				continue
+			}
+			out[key] = mac
+		}
 	}
 	return out
 }
