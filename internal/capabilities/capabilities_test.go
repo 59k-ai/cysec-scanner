@@ -27,3 +27,28 @@ func TestImmutableByValue(t *testing.T) {
 		t.Fatalf("mutating a copy altered the original %+v — Capabilities is not immutable by value", orig)
 	}
 }
+
+// TestARPOutputListsEntries pins the darwin ARP-cache readability rule. macOS 27
+// hides the IPv4 neighbour cache from unprivileged processes: `arp -an` prints
+// nothing at all, although the binary exists. A readable cache always lists at
+// least the interface's own permanent entry, even when every neighbour is still
+// "(incomplete)". So "readable" means at least one entry line, not "arp is on
+// PATH" (which made --describe claim arp_cache:true on a hidden cache).
+func TestARPOutputListsEntries(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		out  string
+		want bool
+	}{
+		{"hidden (macOS 27 unprivileged)", "", false},
+		{"whitespace only", "\n  \n", false},
+		{"readable", "? (192.168.1.1) at 74:24:9f:96:90:57 on en0 ifscope [ethernet]\n", true},
+		{"readable, neighbours incomplete", "? (192.168.1.2) at (incomplete) on en0 ifscope [ethernet]\n", true},
+	}
+	for _, c := range cases {
+		if got := arpOutputListsEntries(c.out); got != c.want {
+			t.Errorf("%s: arpOutputListsEntries = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
