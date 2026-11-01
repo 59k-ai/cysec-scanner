@@ -81,10 +81,10 @@ Security > Local Network.
 
 macOS 27 shows the MAC addresses of other devices only to programs that run
 with administrator rights; Local Network permission does not include them.
-The app does not ask for those rights, so on macOS the MAC vendor column reads
-"Hidden by macOS" and the detail panel says "Not available on macOS without
-administrator rights" for hosts without a MAC. Linux and Windows are not
-affected.
+The app does not ask for those rights, so on macOS the MAC address and MAC
+vendor columns read "Hidden by macOS" and the detail panel says "Not
+available on macOS without administrator rights" for hosts without a MAC.
+Linux and Windows are not affected.
 
 Hosts that answer NetBIOS (usually Windows) still get a MAC: the engine takes
 it from their NetBIOS node-status reply when the cache gives none. To see MAC
@@ -154,8 +154,8 @@ codesign -d --entitlements - gui/build/app/cysec-scanner-gui.app/Contents/MacOS/
 gui/build/app/cysec-scanner-gui.app/Contents/MacOS/cysec-scanner --describe   # expect "arp_cache": true
 ```
 
-Then scan from the app: the MAC vendor column should list vendors instead of
-"Hidden by macOS". Distribution with Developer ID also needs the hardened
+Then scan from the app: the MAC address and MAC vendor columns should list
+addresses and vendors instead of "Hidden by macOS". Distribution with Developer ID also needs the hardened
 runtime, a timestamp and notarization; that is a packaging step outside this
 build.
 

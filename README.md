@@ -11,6 +11,16 @@ The engine reads MAC addresses (and from them the vendor) from the operating
 system's neighbour (ARP) cache after the host sweep. On Linux that is
 `/proc/net/arp`, on Windows `arp -a`; both are readable without extra rights.
 
+The scanning machine's own addresses are never in its own neighbour cache. For
+a result that is one of the machine's own IPv4 addresses, the engine takes the
+MAC from the interface that carries the address, read from the operating
+system's interface list. This needs no extra rights and works on Linux, macOS
+and Windows. Like a cache MAC, it sets the asset's `external_id` to
+`mac:<mac>`, and `classification_evidence.evidence` records
+`"mac_source": "local_interface"`. If the operating system reports a
+placeholder instead of the real address (macOS can show `02:00:00:00:00:00`),
+the address is ignored and the MAC stays `null`.
+
 macOS 27 hides the IPv4 neighbour cache from processes that run without
 administrator rights: `arp -an` prints nothing, and the routing sysctl returns
 no neighbour entries (IPv6 neighbours and even the Mac's own interface show the
