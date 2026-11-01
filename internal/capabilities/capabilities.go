@@ -12,9 +12,12 @@
 package capabilities
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
+	"time"
 
 	"golang.org/x/net/icmp"
 )
@@ -68,8 +71,14 @@ func detectSystemPing() bool {
 // detectARPCache reports whether the kernel ARP/neighbour cache is readable on
 // this platform — the source of L2 MAC evidence harvested after a sweep. On
 // Linux that is /proc/net/arp; elsewhere it is the `arp` binary used to parse
-// `arp -a`. A negative result degrades MAC/vendor to "not observed" (null),
-// never a crash.
+// `arp -an` / `arp -a`. A negative result degrades MAC/vendor to "not observed"
+// (null), never a crash.
+//
+// On macOS the binary existing is not enough: macOS 27 hides the IPv4 neighbour
+// cache from processes without root or the network topology-observation
+// entitlement, and `arp -an` then prints nothing. Local Network permission does
+// not lift this. darwin therefore reports the cache readable only when it
+// actually lists an entry.
 func detectARPCache() bool {
 	switch runtime.GOOS {
 	case "linux":
@@ -79,10 +88,31 @@ func detectARPCache() bool {
 		}
 		_ = f.Close()
 		return true
-	case "darwin", "windows", "freebsd", "openbsd", "netbsd":
+	case "darwin":
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, "arp", "-an").Output()
+		if err != nil {
+			return false
+		}
+		return arpOutputListsEntries(string(out))
+	case "windows", "freebsd", "openbsd", "netbsd":
 		_, err := exec.LookPath("arp")
 		return err == nil
 	default:
 		return false
 	}
+}
+
+// arpOutputListsEntries reports whether BSD `arp -an` output lists at least one
+// cache entry. A readable cache always holds the interface's own permanent entry
+// even when every neighbour is still "(incomplete)", so an entry line of any kind
+// proves the cache is visible; empty output is the hidden-cache signature.
+func arpOutputListsEntries(out string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, " at ") {
+			return true
+		}
+	}
+	return false
 }

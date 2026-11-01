@@ -9,19 +9,58 @@ import (
 )
 
 // normalizeMAC validates s as a 48-bit MAC and returns it in canonical
-// lower-case colon form. It rejects non-MAC strings, non-48-bit addresses and
-// the all-zero address (an incomplete/unresolved cache entry), so a caller can
-// trust any returned value is a real hardware address (shape-before-trust, V5).
+// lower-case colon form. It rejects non-MAC strings, non-48-bit addresses, the
+// all-zero address (an incomplete/unresolved cache entry) and any group address
+// (I/G bit set: broadcast ff:ff:ff:ff:ff:ff, multicast 01:00:5e:...), so a caller
+// can trust any returned value is a real unicast hardware address
+// (shape-before-trust, V5). A readable macOS cache lists the subnet broadcast
+// address, which lies inside the scan scope and would otherwise become an asset.
 func normalizeMAC(s string) (string, bool) {
-	hw, err := net.ParseMAC(strings.TrimSpace(s))
+	hw, err := net.ParseMAC(padColonOctets(strings.TrimSpace(s)))
 	if err != nil || len(hw) != 6 {
 		return "", false
+	}
+	if hw[0]&0x01 != 0 {
+		return "", false // group (broadcast/multicast) address, never a device
 	}
 	mac := hw.String() // lower-case, colon-separated
 	if mac == "00:00:00:00:00:00" {
 		return "", false
 	}
 	return mac, true
+}
+
+// padColonOctets zero-pads one-digit groups of a six-group colon MAC. macOS/BSD
+// arp prints octets unpadded ("74:24:9f:6:c8:ff"), which net.ParseMAC rejects.
+// Anything that is not six colon groups of one or two characters is returned
+// unchanged for net.ParseMAC to judge.
+func padColonOctets(s string) string {
+	parts := strings.Split(s, ":")
+	if len(parts) != 6 {
+		return s
+	}
+	for i, p := range parts {
+		switch len(p) {
+		case 1:
+			parts[i] = "0" + p
+		case 2:
+		default:
+			return s
+		}
+	}
+	return strings.Join(parts, ":")
+}
+
+// arpCommandArgs returns the arguments for the `arp` table dump on goos.
+// macOS/BSD `arp -a` reverse-resolves every entry, which with a few hundred
+// cached neighbours takes several seconds and overruns the read timeout; -n
+// prints numeric addresses only. Windows arp has no lowercase -n (its -N takes an
+// interface address) and does not resolve names, so it keeps plain -a.
+func arpCommandArgs(goos string) []string {
+	if goos == "windows" {
+		return []string{"-a"}
+	}
+	return []string{"-an"}
 }
 
 // parseProcNetARP parses the Linux /proc/net/arp table into an {ip: mac} map.
@@ -53,9 +92,9 @@ func parseProcNetARP(data string) map[string]string {
 	return out
 }
 
-// parseARPCommand parses the output of `arp -a` into an {ip: mac} map. The
-// format differs per platform — BSD/macOS print
-// "? (192.168.1.1) at aa:bb:cc:dd:ee:ff on en0", Windows prints
+// parseARPCommand parses the output of `arp -an` (BSD/macOS) or `arp -a`
+// (Windows) into an {ip: mac} map. The format differs per platform — BSD/macOS
+// print "? (192.168.1.1) at aa:bb:cc:dd:ee:ff on en0" (octets unpadded), Windows prints
 // "192.168.1.1   aa-bb-cc-dd-ee-ff   dynamic" — so each line is scanned for the
 // first IP-shaped token and the first MAC-shaped token (net.ParseMAC accepts
 // both colon and hyphen forms). A line lacking either is skipped; an incomplete
