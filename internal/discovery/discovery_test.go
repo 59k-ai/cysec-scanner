@@ -548,10 +548,11 @@ func TestDetectDegrade(t *testing.T) {
 // unchanged where ARP answered; a routed host keeps the DISC-03 null MAC and
 // sentinel; the external id is not re-keyed for a self-reported MAC.
 func TestEnrichNetBIOSUnitIDMAC(t *testing.T) {
-	origR, origM, origN := resolveRDNS, resolveMDNS, resolveNetBIOS
-	defer func() { resolveRDNS, resolveMDNS, resolveNetBIOS = origR, origM, origN }()
+	origR, origM, origN, origL := resolveRDNS, resolveMDNS, resolveNetBIOS, localNetworks
+	defer func() { resolveRDNS, resolveMDNS, resolveNetBIOS, localNetworks = origR, origM, origN, origL }()
 	resolveRDNS = func(context.Context, string, time.Duration) string { return "" }
 	resolveMDNS = func(context.Context, string, time.Duration) string { return "" }
+	localNetworks = func() []string { return []string{"10.0.0.0/24"} }
 	resolveNetBIOS = func(_ context.Context, ip string, _ time.Duration) netutil.NetBIOSStatus {
 		// Every host claims a MAC; only the eligible ones may take it.
 		return netutil.NetBIOSStatus{Name: "WIN", MAC: "74:24:9f:00:00:07"}
@@ -563,6 +564,9 @@ func TestEnrichNetBIOSUnitIDMAC(t *testing.T) {
 		"ip:10.0.0.7":    {ip: "10.0.0.7"},
 		"mac:" + arpMAC:  {ip: "10.0.0.8", mac: &arpMAC, macVendor: &arpVendor},
 		"ip:203.0.113.9": {ip: "203.0.113.9", routed: true},
+		// Off every local segment but not marked routed: with the ARP cache
+		// hidden, L2 enrichment never ran. Its unit ID is not L2 evidence.
+		"ip:198.51.100.4": {ip: "198.51.100.4"},
 	}
 	enrichHostnames(context.Background(), entries)
 
@@ -598,5 +602,8 @@ func TestEnrichNetBIOSUnitIDMAC(t *testing.T) {
 	r := entries["ip:203.0.113.9"]
 	if r.mac != nil || r.macFromNetBIOS {
 		t.Errorf("routed host mac = %v, want nil (DISC-03 sentinel kept)", r.mac)
+	}
+	if off := entries["ip:198.51.100.4"]; off.mac != nil {
+		t.Errorf("off-segment host mac = %v, want nil (unit ID used on local segments only)", off.mac)
 	}
 }
