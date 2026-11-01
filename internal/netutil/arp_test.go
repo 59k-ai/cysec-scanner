@@ -117,3 +117,14 @@ func TestARPCommandArgs(t *testing.T) {
 		}
 	}
 }
+
+// TestNormalizeMACRejectsRedactionPlaceholder: macOS 27 reports
+// 02:00:00:00:00:00 in place of a hidden MAC (IPv6 neighbours, its own
+// interfaces). It is a privacy placeholder, never a device's address.
+func TestNormalizeMACRejectsRedactionPlaceholder(t *testing.T) {
+	for _, s := range []string{"02:00:00:00:00:00", "2:0:0:0:0:0"} {
+		if m, ok := normalizeMAC(s); ok {
+			t.Errorf("normalizeMAC(%q) = %q, want rejected", s, m)
+		}
+	}
+}
