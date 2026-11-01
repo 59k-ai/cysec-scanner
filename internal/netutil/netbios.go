@@ -6,13 +6,15 @@ package netutil
 // netbios.go hand-rolls a NetBIOS NBSTAT node-status resolver (no external
 // dependency). It sends a unicast node-status query (type 0x0021) to UDP/137 from
 // an ephemeral source port over a connected UDP client socket and parses the
-// returned names table, returning the <00> unique workstation name. The parser is
+// returned names table, returning the <00> unique workstation name and the unit
+// ID that follows the table (a Windows host reports its adapter MAC there). The parser is
 // strictly bounded: the declared name count and each fixed-width entry are checked
 // against the buffer, so a malformed or truncated reply collapses to "" without
 // over-reading or panicking (T-3-08). On any miss it returns "".
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"strings"
 	"time"
@@ -33,15 +35,31 @@ const (
 	maxNBStatReply = 1024
 )
 
+// NetBIOSStatus is the useful part of one NBSTAT node-status reply: the <00>
+// unique workstation name and the unit ID as a validated unicast MAC. Either may
+// be empty. The MAC is self-reported by the host (Samba usually sends zeros,
+// which are rejected), so callers use it only when the ARP cache has nothing.
+type NetBIOSStatus struct {
+	Name string
+	MAC  string
+}
+
 // NetBIOSName resolves a NetBIOS workstation name for ip via a unicast NBSTAT
 // node-status query to UDP/137, returning the sanitized <00> unique name on a hit
-// and "" on a miss, timeout, or malformed reply. The connected UDP socket is an
-// outbound client (net.Dial), never an inbound listener (ENG-04).
+// and "" on a miss, timeout, or malformed reply.
 func NetBIOSName(ctx context.Context, ip string, timeout time.Duration) string {
+	return NetBIOSNodeStatus(ctx, ip, timeout).Name
+}
+
+// NetBIOSNodeStatus sends one unicast NBSTAT node-status query to UDP/137 and
+// returns the workstation name and unit-ID MAC from the reply; a miss, timeout
+// or malformed reply yields the zero value. The connected UDP socket is an
+// outbound client (net.Dial), never an inbound listener (ENG-04).
+func NetBIOSNodeStatus(ctx context.Context, ip string, timeout time.Duration) NetBIOSStatus {
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "udp", net.JoinHostPort(ip, "137"))
 	if err != nil {
-		return ""
+		return NetBIOSStatus{}
 	}
 	defer conn.Close()
 	if dl, ok := ctx.Deadline(); ok && dl.Before(time.Now().Add(timeout)) {
@@ -50,14 +68,14 @@ func NetBIOSName(ctx context.Context, ip string, timeout time.Duration) string {
 		conn.SetDeadline(time.Now().Add(timeout))
 	}
 	if _, err := conn.Write(buildNBStatQuery()); err != nil {
-		return ""
+		return NetBIOSStatus{}
 	}
 	buf := make([]byte, maxNBStatReply)
 	n, err := conn.Read(buf)
 	if err != nil {
-		return ""
+		return NetBIOSStatus{}
 	}
-	return parseNBStatReply(buf[:n])
+	return parseNBStatStatus(buf[:n])
 }
 
 // buildNBStatQuery builds a NBSTAT node-status query for the "*" wildcard name.
@@ -92,28 +110,52 @@ func encodeNetBIOSWildcard() []byte {
 }
 
 // parseNBStatReply extracts the <00> unique workstation name from a NBSTAT
-// node-status reply, or "" if the reply is empty, malformed, or truncated. It
-// skips the answer resource name (literal or compression pointer), validates the
-// record type, and reads the names table within the declared RDLENGTH bounds.
+// node-status reply, or "" if the reply is empty, malformed, or truncated.
 func parseNBStatReply(buf []byte) string {
+	return parseNBStatStatus(buf).Name
+}
+
+// parseNBStatStatus parses a NBSTAT node-status reply into its workstation name
+// and unit-ID MAC. It skips the answer resource name (literal or compression
+// pointer), validates the record type, and reads the names table and the unit ID
+// within the declared RDLENGTH bounds; anything malformed yields empty fields.
+func parseNBStatStatus(buf []byte) NetBIOSStatus {
 	if len(buf) < 12 {
-		return ""
+		return NetBIOSStatus{}
 	}
 	an := int(buf[6])<<8 | int(buf[7])
 	if an < 1 {
-		return ""
+		return NetBIOSStatus{}
 	}
 	off, ok := skipNBName(buf, 12)
 	if !ok || off+10 > len(buf) {
-		return ""
+		return NetBIOSStatus{}
 	}
 	rtype := int(buf[off])<<8 | int(buf[off+1])
 	rdlen := int(buf[off+8])<<8 | int(buf[off+9])
 	off += 10
 	if rtype != nbstatType || rdlen < 1 || off+rdlen > len(buf) {
+		return NetBIOSStatus{}
+	}
+	rdata := buf[off : off+rdlen]
+	return NetBIOSStatus{Name: pickUniqueWorkstation(rdata), MAC: nbUnitIDMAC(rdata)}
+}
+
+// nbUnitIDMAC returns the unit ID that directly follows the names table (the
+// first 6 bytes of the statistics block) as a canonical MAC, or "" when the table
+// overruns the record, no full unit ID follows it, or the ID fails the same
+// shape checks as an ARP entry (all-zero, group/broadcast, malformed).
+func nbUnitIDMAC(rdata []byte) string {
+	end := 1 + int(rdata[0])*nbNameEntryLen
+	if end+6 > len(rdata) {
 		return ""
 	}
-	return pickUniqueWorkstation(buf[off : off+rdlen])
+	u := rdata[end : end+6]
+	mac, ok := normalizeMAC(fmt.Sprintf("%02x:%02x:%02x:%02x:%02x:%02x", u[0], u[1], u[2], u[3], u[4], u[5]))
+	if !ok {
+		return ""
+	}
+	return mac
 }
 
 // skipNBName advances past a DNS/NetBIOS encoded name, returning the offset just

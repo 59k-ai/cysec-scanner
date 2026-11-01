@@ -79,6 +79,9 @@ type hostEntry struct {
 	rdnsHit    bool
 	mdnsHit    bool
 	netbiosHit bool
+	// macFromNetBIOS marks a MAC taken from the NetBIOS node-status unit ID
+	// (self-reported by the host) rather than the ARP cache.
+	macFromNetBIOS bool
 }
 
 // Run resolves the scope, sweeps it, and writes one base AssetItem per live host
