@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -289,5 +290,53 @@ func TestVersion(t *testing.T) {
 	}
 	if got := stdout.String(); got != "v9.9.9\n" {
 		t.Fatalf("version = %q, want v9.9.9", got)
+	}
+}
+
+// TestWritePayloadOwnerOnly: the payload holds network inventory and posture
+// evidence, so it must land owner-only, and a pre-existing looser file must be
+// tightened (os.WriteFile alone keeps the old mode of an existing file).
+func TestWritePayloadOwnerOnly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not meaningful on Windows (NTFS ACLs inherit from the directory)")
+	}
+	dir := t.TempDir()
+	pl := payload.NewEmpty("full_scan", "test")
+
+	fresh := filepath.Join(dir, "fresh.json")
+	if err := writePayload(fresh, pl); err != nil {
+		t.Fatalf("writePayload fresh: %v", err)
+	}
+	if fi, err := os.Stat(fresh); err != nil {
+		t.Fatal(err)
+	} else if got := fi.Mode().Perm(); got != 0o600 {
+		t.Fatalf("fresh payload mode = %o, want 600", got)
+	}
+
+	existing := filepath.Join(dir, "existing.json")
+	if err := os.WriteFile(existing, []byte("old content that is longer than nothing"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(existing, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writePayload(existing, pl); err != nil {
+		t.Fatalf("writePayload existing: %v", err)
+	}
+	fi, err := os.Stat(existing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fi.Mode().Perm(); got != 0o600 {
+		t.Fatalf("pre-existing payload mode = %o, want 600", got)
+	}
+	got, err := os.ReadFile(existing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := json.MarshalIndent(pl, "", "  ")
+	want = append(want, '\n')
+	if !bytes.Equal(got, want) {
+		t.Fatalf("pre-existing payload content not replaced:\n%s", got)
 	}
 }

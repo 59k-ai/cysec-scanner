@@ -11,6 +11,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QRegularExpression>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -96,6 +97,30 @@ QList<QStringList> parseCsv(const QByteArray &bytes)
     return rows;
 }
 
+constexpr QFileDevice::Permissions kGroupOther =
+    QFileDevice::ReadGroup | QFileDevice::WriteGroup | QFileDevice::ExeGroup
+    | QFileDevice::ReadOther | QFileDevice::WriteOther | QFileDevice::ExeOther;
+
+// ownerOnly: owner can read + write, nobody else has any bit.
+bool ownerOnly(const QString &path)
+{
+    const QFileDevice::Permissions p = QFileInfo(path).permissions();
+    return (p & QFileDevice::ReadOwner) && (p & QFileDevice::WriteOwner) && !(p & kGroupOther);
+}
+
+// Pre-create path as a world-readable 0644 file (the umask-default shape).
+bool makeLooseFile(const QString &path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly))
+        return false;
+    f.write("old");
+    f.close();
+    return QFile::setPermissions(path, QFileDevice::ReadOwner | QFileDevice::WriteOwner
+                                           | QFileDevice::ReadGroup | QFileDevice::ReadOther)
+        && (QFileInfo(path).permissions() & QFileDevice::ReadOther);
+}
+
 } // namespace
 
 class TestExporter : public QObject
@@ -116,6 +141,8 @@ private slots:
     void csvRoundTrip();
     void csvExportFromHostModel();
     void csvExportNullModel();
+    void jsonExportOwnerOnly();
+    void csvExportOwnerOnly();
 };
 
 void TestExporter::defaultFileNames()
@@ -323,6 +350,57 @@ void TestExporter::csvExportNullModel()
     Exporter e;
     QVERIFY(!e.exportCsv(nullptr, true, QUrl::fromLocalFile(out)).value("ok").toBool());
     QVERIFY(!QFile::exists(out));
+}
+
+// Exports carry network inventory, so on POSIX they land owner-only (0600),
+// including over a pre-existing looser file.
+void TestExporter::jsonExportOwnerOnly()
+{
+#ifdef Q_OS_WIN
+    // NTFS ACLs inherit from the parent directory; QFile permissions only
+    // toggle the read-only attribute, so owner-only bits are not observable.
+    QSKIP("POSIX owner-only permission bits are not meaningful on Windows");
+#endif
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    Exporter e;
+    const QString fresh = dir.filePath(QStringLiteral("fresh.json"));
+    QVariantMap r = e.exportJson(fixturePath("payload-export-cancelled.json"),
+                                 QUrl::fromLocalFile(fresh));
+    QVERIFY2(r.value("ok").toBool(), qPrintable(r.value("error").toString()));
+    QVERIFY2(ownerOnly(fresh), qPrintable(QString::number(QFileInfo(fresh).permissions(), 16)));
+
+    const QString existing = dir.filePath(QStringLiteral("existing.json"));
+    QVERIFY(makeLooseFile(existing));
+    r = e.exportJson(fixturePath("payload-export-cancelled.json"), QUrl::fromLocalFile(existing));
+    QVERIFY2(r.value("ok").toBool(), qPrintable(r.value("error").toString()));
+    QVERIFY2(ownerOnly(existing),
+             qPrintable(QString::number(QFileInfo(existing).permissions(), 16)));
+    QCOMPARE(readAll(existing), readAll(fixturePath("payload-export-cancelled.json")));
+}
+
+void TestExporter::csvExportOwnerOnly()
+{
+#ifdef Q_OS_WIN
+    QSKIP("POSIX owner-only permission bits are not meaningful on Windows");
+#endif
+    HostModel model;
+    model.upsert(hostileHost());
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    Exporter e;
+    const QString fresh = dir.filePath(QStringLiteral("fresh.csv"));
+    QVariantMap r = e.exportCsv(&model, false, QUrl::fromLocalFile(fresh));
+    QVERIFY2(r.value("ok").toBool(), qPrintable(r.value("error").toString()));
+    QVERIFY2(ownerOnly(fresh), qPrintable(QString::number(QFileInfo(fresh).permissions(), 16)));
+
+    const QString existing = dir.filePath(QStringLiteral("existing.csv"));
+    QVERIFY(makeLooseFile(existing));
+    r = e.exportCsv(&model, false, QUrl::fromLocalFile(existing));
+    QVERIFY2(r.value("ok").toBool(), qPrintable(r.value("error").toString()));
+    QVERIFY2(ownerOnly(existing),
+             qPrintable(QString::number(QFileInfo(existing).permissions(), 16)));
+    QCOMPARE(readAll(existing), Exporter::csvForHosts(model.hosts(), false));
 }
 
 QTEST_MAIN(TestExporter)

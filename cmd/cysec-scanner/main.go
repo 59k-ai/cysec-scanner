@@ -128,12 +128,29 @@ func writeDescribe(stdout io.Writer) error {
 }
 
 // writePayload marshals pl and writes it to path with a trailing newline.
+//
+// The payload holds network inventory and posture evidence, so the file is
+// owner-only (0600). The explicit Chmod tightens a pre-existing looser file,
+// which the OpenFile mode alone does not touch (it only applies on create).
+// On Windows Chmod(0o600) only keeps the file writable, which is harmless.
 func writePayload(path string, pl payload.Payload) error {
 	data, err := json.MarshalIndent(pl, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(data, '\n'), 0o644)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := f.Chmod(0o600); err != nil {
+		f.Close()
+		return err
+	}
+	if _, err := f.Write(append(data, '\n')); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // cidrList is a repeatable --cidr flag accumulator.

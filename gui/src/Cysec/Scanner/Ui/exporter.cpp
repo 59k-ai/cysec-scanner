@@ -41,6 +41,18 @@ QVariantMap writeAtomically(const QUrl &target, const QByteArray &data)
     QSaveFile out(target.toLocalFile());
     if (!out.open(QIODevice::WriteOnly))
         return failure(out.errorString());
+#ifndef Q_OS_WIN
+    // Exports carry network inventory, so they are owner-only (0600). The mode
+    // is set on the temp file; commit() renames it over the target, so a
+    // pre-existing looser target is replaced by an owner-only file. Windows
+    // relies on the parent directory's ACL inheritance instead (QFile
+    // permissions only toggle the read-only attribute there).
+    if (!out.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
+        const QString err = out.errorString();
+        out.cancelWriting();
+        return failure(err);
+    }
+#endif
     if (out.write(data) != data.size()) {
         const QString err = out.errorString();
         out.cancelWriting();
