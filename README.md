@@ -27,7 +27,22 @@ sudo cysec-scanner --cidr 192.168.1.0/24 --payload-out scan.json
 ```
 
 The engine stays read-only under `sudo`: it only reads the cache the kernel
-already holds (`arp -an`) and opens no listening socket. Hosts whose MAC is
+already holds (in-process `sysctl`, falling back to `arp -an`) and opens no
+listening socket.
+
+Without administrator rights, two other sources still apply:
+
+- **NetBIOS:** when a host has no cache entry, the engine uses the unit ID from
+  the NetBIOS node-status reply it already requests for the host name (Windows
+  hosts report their adapter MAC there; Samba usually reports zeros, which are
+  ignored). It is used only for hosts on a local segment, it does not change the
+  asset's `external_id`, and the asset's `classification_evidence.evidence`
+  records `"mac_source": "netbios_self_reported"`, because the host reports the
+  value about itself.
+- **Entitled build:** an engine signed with Apple's restricted
+  `com.apple.developer.networking.topology-observation` entitlement reads the
+  cache in-process through `sysctl` `NET_RT_FLAGS_PRIV`. See the GUI README
+  (untested). Hosts whose MAC is
 randomized ("private Wi-Fi address", locally administered) have a MAC but no
 vendor, because such addresses are not registered with the IEEE.
 

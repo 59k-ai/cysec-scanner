@@ -86,12 +86,78 @@ The app does not ask for those rights, so on macOS the MAC vendor column reads
 administrator rights" for hosts without a MAC. Linux and Windows are not
 affected.
 
-To see MAC addresses and vendors on macOS, run the command-line engine with
+Hosts that answer NetBIOS (usually Windows) still get a MAC: the engine takes
+it from their NetBIOS node-status reply when the cache gives none. To see MAC
+addresses and vendors for all hosts on macOS, run the command-line engine with
 `sudo` (see the repository README, "MAC addresses on macOS"):
 
 ```sh
 sudo gui/build/cysec-scanner --cidr 192.168.1.0/24 --payload-out scan.json
 ```
+
+### macOS: MAC addresses without administrator rights (untested)
+
+Apple grants neighbour MAC addresses on macOS 27 to programs that carry the
+restricted entitlement `com.apple.developer.networking.topology-observation`
+(Xcode capability "Network Topology Observation"). The engine reads the cache
+itself through `sysctl` (`NET_RT_FLAGS_PRIV`), so the bundled engine must carry
+the entitlement; a spawned `/usr/sbin/arp` would not inherit it. The build can
+sign the engine that way. It is off by default, and the ad-hoc and plain Apple
+Development builds are unchanged.
+
+**This path has not been tested end to end**: it needs a provisioning profile
+that grants the entitlement. In particular it is not yet confirmed that macOS
+accepts the profile embedded in the app for the engine in `Contents/MacOS`.
+If it does not, macOS kills the engine at launch ("Killed: 9", and Console
+shows `taskgated` / AMFI rejecting the entitlement). The fallback then is to
+ship the engine in its own app-like wrapper with its own profile, which needs
+a change to where the GUI looks for the engine.
+
+Steps in the Apple Developer portal (Certificates, Identifiers & Profiles),
+for team `LZ9GFJBK99`:
+
+1. **Identifiers:** register an explicit App ID for macOS with the bundle ID
+   `ai.59k.cysec-scanner-gui`, or open the existing one.
+2. On that App ID, enable **Network Topology Observation** (under
+   Capabilities, or Additional Capabilities if Apple lists it as a request).
+   Save.
+3. **Devices:** for a development profile, register this Mac by its
+   Provisioning UDID (System Information > Hardware).
+4. **Profiles:** create a **macOS App Development** profile (for the Apple
+   Development certificate; local testing) or a **Developer ID** profile (for
+   distribution outside the App Store). Select the App ID above, the
+   certificate that `CYSEC_GUI_CODESIGN_IDENTITY` names, and for development
+   the Mac. Download the `.provisionprofile`.
+
+Then, outside the repository:
+
+```sh
+cp gui/app/macos/engine-topology-observation.entitlements.example ~/cysec-engine.entitlements
+# replace TEAMID with LZ9GFJBK99 (three places)
+cmake -S gui -B gui/build \
+    -DCYSEC_GUI_BUNDLE_ENGINE="$PWD/gui/build/cysec-scanner" \
+    -DCYSEC_GUI_ENGINE_ENTITLEMENTS="$HOME/cysec-engine.entitlements" \
+    -DCYSEC_GUI_PROVISIONING_PROFILE="$HOME/Downloads/<profile>.provisionprofile"
+cmake --build gui/build
+```
+
+The signing step refuses to run with only one of the two settings, with an
+ad-hoc identity, with the TEAMID placeholder left in, or with a profile that
+does not grant the entitlement or names a different App ID. It embeds the
+profile as `Contents/embedded.provisionprofile` and signs the engine (under
+the bundle identifier) and the bundle with the entitlements.
+
+To check the result:
+
+```sh
+codesign -d --entitlements - gui/build/app/cysec-scanner-gui.app/Contents/MacOS/cysec-scanner
+gui/build/app/cysec-scanner-gui.app/Contents/MacOS/cysec-scanner --describe   # expect "arp_cache": true
+```
+
+Then scan from the app: the MAC vendor column should list vendors instead of
+"Hidden by macOS". Distribution with Developer ID also needs the hardened
+runtime, a timestamp and notarization; that is a packaging step outside this
+build.
 
 ## Test
 
