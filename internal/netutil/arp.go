@@ -10,7 +10,8 @@ import (
 
 // normalizeMAC validates s as a 48-bit MAC and returns it in canonical
 // lower-case colon form. It rejects non-MAC strings, non-48-bit addresses, the
-// all-zero address (an incomplete/unresolved cache entry) and any group address
+// all-zero address (an incomplete/unresolved cache entry), the macOS redaction
+// placeholder 02:00:00:00:00:00 and any group address
 // (I/G bit set: broadcast ff:ff:ff:ff:ff:ff, multicast 01:00:5e:...), so a caller
 // can trust any returned value is a real unicast hardware address
 // (shape-before-trust, V5). A readable macOS cache lists the subnet broadcast
@@ -24,11 +25,16 @@ func normalizeMAC(s string) (string, bool) {
 		return "", false // group (broadcast/multicast) address, never a device
 	}
 	mac := hw.String() // lower-case, colon-separated
-	if mac == "00:00:00:00:00:00" {
+	if mac == "00:00:00:00:00:00" || mac == macRedactedPlaceholder {
 		return "", false
 	}
 	return mac, true
 }
+
+// macRedactedPlaceholder is what macOS 27 reports in place of a MAC it hides
+// from the caller (IPv6 neighbours, the Mac's own interfaces). It is a privacy
+// placeholder, never a device's address.
+const macRedactedPlaceholder = "02:00:00:00:00:00"
 
 // padColonOctets zero-pads one-digit groups of a six-group colon MAC. macOS/BSD
 // arp prints octets unpadded ("74:24:9f:6:c8:ff"), which net.ParseMAC rejects.

@@ -77,8 +77,9 @@ func detectSystemPing() bool {
 // On macOS the binary existing is not enough: macOS 27 hides the IPv4 neighbour
 // cache from processes without root or the network topology-observation
 // entitlement, and `arp -an` then prints nothing. Local Network permission does
-// not lift this. darwin therefore reports the cache readable only when it
-// actually lists an entry.
+// not lift this. darwin therefore reports the cache readable only when the
+// in-process sysctl (root, or an engine signed with the topology-observation
+// entitlement) yields a usable MAC, or `arp -an` actually lists an entry.
 func detectARPCache() bool {
 	switch runtime.GOOS {
 	case "linux":
@@ -89,6 +90,9 @@ func detectARPCache() bool {
 		_ = f.Close()
 		return true
 	case "darwin":
+		if sysctlARPReadable() {
+			return true
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		out, err := exec.CommandContext(ctx, "arp", "-an").Output()
