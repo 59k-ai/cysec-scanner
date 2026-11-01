@@ -255,6 +255,10 @@
         <translation>Hostname</translation>
     </message>
     <message>
+        <source>MAC address</source>
+        <translation>MAC-Adresse</translation>
+    </message>
+    <message>
         <source>MAC vendor</source>
         <translation>MAC-Hersteller</translation>
     </message>

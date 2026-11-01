@@ -74,7 +74,7 @@ Item {
 
         function makeTable(props) {
             const model = TestData.hostModel(rootItem.hosts())
-            const columns = props.columns ? props.columns.length : 5
+            const columns = props.columns ? props.columns.length : 6
             const base = { model: model }
             for (const k in props)
                 base[k] = props[k]
@@ -99,10 +99,19 @@ Item {
             return c ? c.text : undefined
         }
 
+        // The delegate TableView has loaded for a cell. Pooled delegates are
+        // culled, not hidden, so after rows leave and re-enter the view a stale
+        // copy can still match findVisible; itemAtCell never returns one.
+        function loadedText(t, row, column) {
+            const item = findChild(t, "hostTable").itemAtCell(Qt.point(column, row))
+            return item ? item.Accessible.name : undefined
+        }
+
         function test_headers() {
             const t = makeTable({})
-            const titles = ["IP address", "Hostname", "MAC vendor", "Open ports", "OS guess"]
-            for (let c = 0; c < 5; ++c) {
+            const titles = ["IP address", "Hostname", "MAC address", "MAC vendor", "Open ports",
+                            "OS guess"]
+            for (let c = 0; c < 6; ++c) {
                 let h = null
                 tryVerify(() => (h = rootItem.findVisible(t, "header_" + c)) !== null)
                 compare(h.Accessible.name, titles[c])
@@ -135,16 +144,41 @@ Item {
 
         function test_emptyCellShowsUnknown() {
             const t = makeTable({})
-            const vendor = cell(t, 1, 2)
+            const vendor = cell(t, 1, 3)
             compare(vendor.text, "Unknown")
             compare(vendor.color, Theme.muted)
-            compare(cell(t, 0, 4).text, "Unknown")
+            compare(cell(t, 0, 5).text, "Unknown")
+        }
+
+        function test_macColumn() {
+            const t = makeTable({})
+            const mac = cell(t, 1, 2)
+            compare(mac.text, "00:11:22:33:44:55")
+            compare(mac.mono, true)
+            compare(mac.color, Theme.ink)
+            const none = cell(t, 0, 2)
+            compare(none.text, "Unknown")
+            compare(none.mono, false)
+            compare(none.color, Theme.muted)
+        }
+
+        function test_sortByMac() {
+            const t = makeTable({})
+            let h = null
+            tryVerify(() => (h = rootItem.findVisible(t, "header_2")) !== null)
+            mouseClick(h)
+            compare(t.sortRole, "mac")
+            compare(t.sortOrder, Qt.AscendingOrder)
+            // Empty MACs sort first; ties fall back to numeric IP order.
+            tryVerify(() => loadedText(t, 2, 2) === "00:11:22:33:44:55")
+            compare(loadedText(t, 2, 0), "192.0.2.10")
         }
 
         // macOS 27 hides other devices' MACs from processes without
         // administrator rights. The caller passes a short cell text; it
-        // replaces "Unknown" in the MAC vendor column only for a host with no
-        // MAC. A host whose MAC is known but unregistered stays "Unknown".
+        // replaces "Unknown" in the MAC address and MAC vendor columns only for
+        // a host with no MAC. A host whose MAC is known but unregistered keeps
+        // its address and shows "Unknown" as the vendor.
         function test_macHiddenByOsReplacesUnknownVendor() {
             const model = TestData.hostModel([
                 { ip: "192.0.2.1", hostname: "", vendor: "", osGuess: "" },
@@ -159,11 +193,14 @@ Item {
             const view = findChild(t, "hostTable")
             tryVerify(() => view.rows === 2)
             waitForRendering(t)
-            const hidden = cell(t, 0, 2)
-            compare(hidden.text, "Hidden by macOS")
-            compare(hidden.color, Theme.muted)
-            compare(cell(t, 1, 2).text, "Unknown")
-            compare(cell(t, 0, 4).text, "Unknown")
+            for (const c of [2, 3]) {
+                const hidden = cell(t, 0, c)
+                compare(hidden.text, "Hidden by macOS")
+                compare(hidden.color, Theme.muted)
+            }
+            compare(cell(t, 1, 2).text, "02:00:5e:10:00:01")
+            compare(cell(t, 1, 3).text, "Unknown")
+            compare(cell(t, 0, 5).text, "Unknown")
         }
 
         function test_neutralColoursOnly() {
@@ -171,12 +208,12 @@ Item {
             const t = makeTable({})
             const allowed = [String(Theme.ink), String(Theme.muted), String(Theme.subtle)]
             for (let r = 0; r < 3; ++r) {
-                for (let c = 0; c < 5; ++c) {
+                for (let c = 0; c < 6; ++c) {
                     const col = String(cell(t, r, c).color)
                     verify(allowed.indexOf(col) >= 0, "cell " + r + "," + c + " " + col)
                 }
             }
-            compare(cell(t, 2, 3).text, "23, 445, 3389")
+            compare(cell(t, 2, 4).text, "23, 445, 3389")
         }
 
         function test_headerClickSorts() {
@@ -251,6 +288,9 @@ Item {
             t.filterText = "printer"
             tryCompare(findChild(t, "hostTable"), "rows", 1)
             tryVerify(() => textAt(t, 0, 0) === "192.0.2.9")
+            t.filterText = "00:11:22"
+            tryCompare(findChild(t, "hostTable"), "rows", 1)
+            tryVerify(() => loadedText(t, 0, 0) === "192.0.2.10")
         }
 
         function test_emptyState() {

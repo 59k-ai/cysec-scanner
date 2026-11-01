@@ -23,8 +23,8 @@ Item {
     property string filterText
     property var currentHost
 
-    // When set, replaces "Unknown" in the MAC vendor (and MAC) column for a
-    // host without a MAC: macOS 27 hides other devices' MAC addresses from
+    // When set, replaces "Unknown" in the MAC address and MAC vendor columns
+    // for a host without a MAC: macOS 27 hides other devices' MAC addresses from
     // programs without administrator rights. macUnavailableDetail is the
     // fuller wording shown as the cell's tooltip and accessible description.
     property string macUnavailableText
@@ -44,11 +44,12 @@ Item {
     signal hostActivated(int row)
 
     readonly property var defaultColumns: [
-        { title: qsTr("IP address"), role: "ip", width: 140, mono: true },
-        { title: qsTr("Hostname"), role: "hostname", width: 200, mono: false },
-        { title: qsTr("MAC vendor"), role: "vendor", width: 180, mono: false },
-        { title: qsTr("Open ports"), role: "ports", width: 160, mono: true },
-        { title: qsTr("OS guess"), role: "osGuess", width: 180, mono: false }
+        { title: qsTr("IP address"), role: "ip", width: 130, mono: true },
+        { title: qsTr("Hostname"), role: "hostname", width: 170, mono: false },
+        { title: qsTr("MAC address"), role: "mac", width: 140, mono: true },
+        { title: qsTr("MAC vendor"), role: "vendor", width: 160, mono: false },
+        { title: qsTr("Open ports"), role: "ports", width: 140, mono: true },
+        { title: qsTr("OS guess"), role: "osGuess", width: 160, mono: false }
     ]
     readonly property var effectiveColumns: columns && columns.length > 0 ? columns : defaultColumns
 
