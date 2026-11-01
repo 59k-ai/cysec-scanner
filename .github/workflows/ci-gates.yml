@@ -3,14 +3,19 @@ name: ci-gates
 # LIB-04 blocking CI gates (CI-gate-as-contract). Every job here MUST redden the
 # pipeline on failure: NONE of them carries an allow-failure / failure-suppression
 # escape hatch. These gates stand up the keystone invariants — static
-# cross-platform binaries, the locked go-1.22 pin, a license-clean module graph,
-# a name-clean public tree, and no inbound listening socket — BEFORE any external
-# module pins and imports the public API, so a regression reddens rather than
-# ships. Modelled on governance.yml (same triggers, runner, checkout@v4,
-# setup-go@v5 "1.22", no escape hatch).
+# cross-platform binaries, the go 1.26.0 directive floor, a license-clean module
+# graph, a name-clean public tree, no inbound listening socket and no reachable
+# known vulnerability — BEFORE any external module pins and imports the public
+# API, so a regression reddens rather than ships. Modelled on governance.yml
+# (same triggers, runner, no escape hatch). Every action is pinned by full
+# commit SHA, every setup-go step builds on Go 1.27.x with check-latest, and
+# the default token is read-only.
 on:
   pull_request:
   push:
+
+permissions:
+  contents: read
 
 jobs:
   # Gate 1 — static cross-compile matrix (LIB-04, threat T-9-11).
@@ -33,12 +38,12 @@ jobs:
         goarch: [amd64, arm64]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.22"
+          go-version: "1.27.x"
           check-latest: true
 
       - name: "Static build ${{ matrix.goos }}/${{ matrix.goarch }} (no cgo, no C compiler)"
@@ -49,26 +54,33 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: go build -trimpath -ldflags='-s -w' ./...
 
-  # Gate 2 — go-1.22 directive assertion (LIB-04, threat T-9-SC).
-  # The locked static-build pin depends on go.mod declaring EXACTLY `go 1.22`
-  # with NO `toolchain` line (a toolchain line would silently raise the pin and
-  # break the locked go-1.22 contract). Reddens if the directive is not exactly
-  # `go 1.22`, or if any toolchain line is present.
+  # Gate 2 — go-1.26 directive assertion (LIB-04, threat T-9-SC).
+  # go.mod and tests/consumer/go.mod must declare EXACTLY `go 1.26.0`: the
+  # minimum is the oldest supported Go line, written in the tidy-stable form
+  # (every current dependency declares `go 1.26.0`, so `go mod tidy` would
+  # rewrite a bare `go 1.26` and redden the tidy gate). There is NO `toolchain`
+  # line: the CI Go is chosen by setup-go, not by go.mod, and a toolchain line
+  # would make builds silently download a toolchain and duplicate the CI pin.
+  # Raised from go 1.22 on 2026-11-01 after an external security review
+  # (F1/F2: unsupported stdlib, unpatched x/* dependencies). Reddens if either
+  # directive is not exactly `go 1.26.0`, or if any toolchain line is present.
   go-directive:
-    name: go-1.22 directive pin
+    name: go-1.26 directive pin
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Assert go.mod declares exactly 'go 1.22' and no toolchain line
+      - name: Assert go.mod files declare exactly 'go 1.26.0' and no toolchain line
         run: |
-          grep -qxE 'go 1\.22' go.mod || { echo "go.mod does not declare exactly 'go 1.22'"; exit 1; }
-          if grep -qE '^toolchain ' go.mod; then
-            echo "go.mod carries a toolchain line that would raise the go-1.22 pin"
-            exit 1
-          fi
-          echo "GO122_PINNED"
+          for f in go.mod tests/consumer/go.mod; do
+            grep -qxE 'go 1\.26\.0' "$f" || { echo "$f does not declare exactly 'go 1.26.0'"; exit 1; }
+            if grep -qE '^toolchain' "$f"; then
+              echo "$f carries a toolchain line; CI selects the toolchain"
+              exit 1
+            fi
+          done
+          echo "GO126_PINNED"
 
   # Gate 3 — dependency-license gate (LIB-04, threat T-9-SC).
   # Reddens if ANY forbidden/restricted (copyleft/OEM) license appears in the Go
@@ -81,12 +93,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.22"
+          go-version: "1.27.x"
           check-latest: true
 
       - name: Install go-licenses (pinned by commit SHA; Apache-2.0)
@@ -109,12 +121,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.22"
+          go-version: "1.27.x"
           check-latest: true
 
       - name: Build module
@@ -149,7 +161,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Grep tracked tree for private identifiers
         run: |
@@ -187,7 +199,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Assert no inbound listening socket outside the two-site allowlist
         run: |
@@ -227,7 +239,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Assert zero relocated-code tokens in tracked Go sources and module files
         run: |
@@ -252,19 +264,19 @@ jobs:
   # Gate 8 — module-graph tidy-clean assertion (APOST-01, threat T-10-11).
   # After code is removed, `go mod tidy` must already have been run and
   # committed: a dependency (or go.sum hash) that only the removed code needed
-  # would otherwise linger in the published module graph. Runs tidy on the
-  # pinned go-1.22 toolchain and reddens if go.mod or go.sum changes.
+  # would otherwise linger in the published module graph. Runs tidy on the CI
+  # Go 1.27.x toolchain and reddens if go.mod or go.sum changes.
   go-mod-tidy:
     name: go.mod / go.sum tidy-clean
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.22"
+          go-version: "1.27.x"
           check-latest: true
 
       - name: Assert go mod tidy produces no drift
@@ -278,3 +290,39 @@ jobs:
             exit 1
           fi
           echo "GOMOD_TIDY_CLEAN"
+
+  # Gate 9 — govulncheck reachable-vulnerability scan (F1/F2).
+  # Scans the module with the SAME toolchain that builds the release (setup-go
+  # Go 1.27.x + check-latest), so standard-library CVEs in the shipped Go are
+  # visible alongside dependency CVEs; a scan on an old pinned toolchain could
+  # not show them. Default source mode: exit 3 on any vulnerability reachable
+  # from the code reddens the job. GOOS is a matrix because x/sys and stdlib
+  # vulnerabilities can be OS-specific. govulncheck is pinned by version
+  # (v1.9.0), never @latest. No failure-suppression.
+  govulncheck:
+    name: govulncheck (reachable vulns, CI Go)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, windows, darwin]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.x"
+          check-latest: true
+
+      - name: Install govulncheck (pinned v1.9.0)
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+
+      - name: Show toolchain
+        run: go version
+
+      - name: "govulncheck ./... (GOOS=${{ matrix.goos }})"
+        env:
+          GOOS: ${{ matrix.goos }}
+        run: govulncheck ./...

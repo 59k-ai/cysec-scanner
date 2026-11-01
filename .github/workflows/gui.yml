@@ -5,8 +5,8 @@ name: gui
 # the ship Qt, plus the Qt 6.8 API floor on Linux. G2 keeps the translation
 # catalogue in sync with the sources and complete (I18N-01). G3 enforces the
 # SGUI-06 vocabulary and plain-text rendering rules. Modelled on ci-gates.yml
-# (same triggers, checkout@v4, setup-go@v5 "1.22", numbered gate headers,
-# third-party tools pinned by commit SHA). No failure-suppression: every job
+# (same triggers, every action pinned by full commit SHA, setup-go on Go
+# 1.27.x with check-latest, numbered gate headers, read-only token). No failure-suppression: every job
 # and every leg MUST redden the pipeline on failure, and NONE carries an
 # allow-failure escape hatch. The name-clean leak-guard job in ci-gates.yml
 # greps every tracked file, so gui/ is already covered there.
@@ -24,6 +24,9 @@ name: gui
 on:
   pull_request:
   push:
+
+permissions:
+  contents: read
 
 jobs:
   # Gate G1 — build, qmllint and test (SGUI-01..06, I18N-01, D-17).
@@ -70,7 +73,7 @@ jobs:
         run: git config --global core.autocrlf false
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Paths are passed to go, CMake and ctest in forward-slash form, which
       # all three accept on Windows too.
@@ -85,9 +88,9 @@ jobs:
           echo "CYSEC_ENGINE=$temp/engine/cysec-scanner${{ matrix.exe }}" >> "$GITHUB_ENV"
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.22"
+          go-version: "1.27.x"
           check-latest: true
 
       - name: Install Qt ${{ matrix.qt }} (${{ matrix.arch }})
@@ -193,7 +196,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Qt 6.12.0 (linux_gcc_64)
         uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4.4.1
@@ -231,7 +234,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Gate self-tests
         run: python3 -m unittest gui/tools/test_gates.py -v

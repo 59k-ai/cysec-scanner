@@ -14,22 +14,26 @@ on:
     - cron: "17 4 1 * *"
   workflow_dispatch:
 
+# Read-only by default; only the refresh job below may push a branch and open
+# the pin-bump pull request.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   oui-refresh:
     name: refresh IEEE OUI pin (open PR on change)
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.22"
+          go-version: "1.27.x"
           check-latest: true
 
       # Fetch the three IEEE CSVs (browser UA + GET + retry/backoff, inside the
@@ -56,12 +60,9 @@ jobs:
           esac
 
       # Open a reviewable pin-bump PR only when the snapshot actually changed.
-      # Pinning this action by commit SHA is recommended before the first LIVE
-      # run under the public org (Phase 8); a major-version tag is used here
-      # to match the existing governance.yml action-pinning idiom.
       - name: Open pin-bump pull request
         if: steps.fetch.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           commit-message: "chore(oui): refresh IEEE OUI snapshot + sha256 pins"
           branch: oui-refresh/pin-bump
