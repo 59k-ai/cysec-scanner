@@ -85,7 +85,7 @@ if(APPLE AND TARGET cysec-scanner-gui)
             "-DENTITLEMENTS=${_cysec_fx}/filled.entitlements"
             "-DPROFILE=${_cysec_fx}/not-a-profile.provisionprofile" -P "${_cysec_sign}")
     set_tests_properties(macsign_entitlements_need_real_identity PROPERTIES
-        PASS_REGULAR_EXPRESSION "Apple Development or Developer ID")
+        PASS_REGULAR_EXPRESSION "Apple[ \n]+Development[ \n]+or[ \n]+Developer[ \n]+ID")
     add_test(NAME macsign_entitlements_reject_template
         COMMAND "${CMAKE_COMMAND}" ${_cysec_base} -DIDENTITY=ABCDEF
             "-DENTITLEMENTS=${CMAKE_CURRENT_SOURCE_DIR}/../app/macos/engine-topology-observation.entitlements.example"

@@ -46,6 +46,13 @@ if(APPLE)
         "codesign identity for the app bundle; '-' is ad-hoc, empty skips signing")
     set(CYSEC_GUI_BUNDLE_ENGINE "" CACHE FILEPATH
         "engine binary copied into the bundle as Contents/MacOS/cysec-scanner before signing")
+    # Optional, default off: sign the bundled engine with the restricted
+    # topology-observation entitlement so it can read neighbour MACs on macOS
+    # 27 without administrator rights. Needs both, plus a real identity.
+    set(CYSEC_GUI_ENGINE_ENTITLEMENTS "" CACHE FILEPATH
+        "entitlements plist for the bundled engine (see app/macos/engine-topology-observation.entitlements.example)")
+    set(CYSEC_GUI_PROVISIONING_PROFILE "" CACHE FILEPATH
+        "provisioning profile granting the topology-observation entitlement, embedded in the bundle")
 
     set_target_properties(cysec-scanner-gui PROPERTIES
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/macos/Info.plist.in")
@@ -61,6 +68,8 @@ if(APPLE)
             "-DIDENTIFIER=$<TARGET_PROPERTY:cysec-scanner-gui,MACOSX_BUNDLE_GUI_IDENTIFIER>"
             "-DIDENTITY=${CYSEC_GUI_CODESIGN_IDENTITY}"
             "-DENGINE=${CYSEC_GUI_BUNDLE_ENGINE}"
+            "-DENTITLEMENTS=${CYSEC_GUI_ENGINE_ENTITLEMENTS}"
+            "-DPROFILE=${CYSEC_GUI_PROVISIONING_PROFILE}"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/../cmake/macos-sign-bundle.cmake"
         VERBATIM)
 endif()
