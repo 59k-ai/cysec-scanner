@@ -42,7 +42,10 @@ jobs:
         id: fetch
         run: |
           set +e
-          go run ./tools/oui-fetch --root .
+          # Build then run the binary: `go run` reports any non-zero child exit
+          # as 1, which would hide the tool's exit 10 ("changes present").
+          go build -o "$RUNNER_TEMP/oui-fetch" ./tools/oui-fetch || exit 1
+          "$RUNNER_TEMP/oui-fetch" --root .
           code=$?
           set -e
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
