@@ -3,34 +3,34 @@
   "entries": [
     {
       "path": "data/oui/mam.csv",
-      "sha256": "9590c0564a7ce2476f1aa38c5161fe017b835691529ae37d5adc580b27ccb97e",
+      "sha256": "851bf9764e0e93446ce7e46a946be6dd03a3f3919713279253b4ff18bd55adc6",
       "license": "NOASSERTION",
       "license_note": "IEEE non-assertion of copyright; redistribution unrestricted",
       "provenance_url": "https://standards-oui.ieee.org/oui28/mam.csv",
-      "upstream_snapshot": "2026-10-18",
-      "fetch_date": "2026-10-18",
+      "upstream_snapshot": "2026-11-01",
+      "fetch_date": "2026-11-01",
       "registry_block": "MA-M",
       "prefix_bits": 28
     },
     {
       "path": "data/oui/oui.csv",
-      "sha256": "bdd0377ed4a4b3fa5e1b7445a29a64c39d5179d40dd8a50038789abb2aff5c8d",
+      "sha256": "d25109d804d5b35bc81072b7e5fa7a43b759d7833a0d8535a039813c35f730bf",
       "license": "NOASSERTION",
       "license_note": "IEEE non-assertion of copyright; redistribution unrestricted",
       "provenance_url": "https://standards-oui.ieee.org/oui/oui.csv",
-      "upstream_snapshot": "2026-10-18",
-      "fetch_date": "2026-10-18",
+      "upstream_snapshot": "2026-11-01",
+      "fetch_date": "2026-11-01",
       "registry_block": "MA-L",
       "prefix_bits": 24
     },
     {
       "path": "data/oui/oui36.csv",
-      "sha256": "53c4bf31090c4963e46645f1a24af1205601d36883039a7e1d6531c46359bb6c",
+      "sha256": "17c6a833382ed29499c4658b5988961d40bbb10ddae2cd27fb0d418341590272",
       "license": "NOASSERTION",
       "license_note": "IEEE non-assertion of copyright; redistribution unrestricted",
       "provenance_url": "https://standards-oui.ieee.org/oui36/oui36.csv",
-      "upstream_snapshot": "2026-10-18",
-      "fetch_date": "2026-10-18",
+      "upstream_snapshot": "2026-11-01",
+      "fetch_date": "2026-11-01",
       "registry_block": "MA-S",
       "prefix_bits": 36
     },
