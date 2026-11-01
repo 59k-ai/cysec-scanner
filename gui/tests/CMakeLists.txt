@@ -59,7 +59,45 @@ if(APPLE AND TARGET cysec-scanner-gui)
             CYSEC_GUI_BUNDLE_DIR="$<TARGET_BUNDLE_DIR:cysec-scanner-gui>"
             CYSEC_GUI_BUNDLE_ID="$<TARGET_PROPERTY:cysec-scanner-gui,MACOSX_BUNDLE_GUI_IDENTIFIER>")
         add_dependencies(tst_macbundle cysec-scanner-gui)
+        target_compile_definitions(tst_macbundle PRIVATE
+            CYSEC_GUI_PROVISIONING_PROFILE_SET=$<BOOL:${CYSEC_GUI_PROVISIONING_PROFILE}>)
     endif()
+
+    # The optional topology-observation signing path (MACs without
+    # administrator rights) must refuse unusable input before it touches a
+    # bundle: a restricted entitlement without a profile, an ad-hoc identity or
+    # an unfilled template would produce an engine macOS kills at launch.
+    set(_cysec_sign "${CMAKE_CURRENT_SOURCE_DIR}/../cmake/macos-sign-bundle.cmake")
+    set(_cysec_fx "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/macsign")
+    set(_cysec_base -DBUNDLE=/nonexistent/x.app -DMAIN=x -DIDENTIFIER=ai.59k.cysec-scanner-gui)
+    add_test(NAME macsign_entitlements_need_profile
+        COMMAND "${CMAKE_COMMAND}" ${_cysec_base} -DIDENTITY=ABCDEF
+            "-DENTITLEMENTS=${_cysec_fx}/filled.entitlements" -P "${_cysec_sign}")
+    set_tests_properties(macsign_entitlements_need_profile PROPERTIES
+        PASS_REGULAR_EXPRESSION "CYSEC_GUI_PROVISIONING_PROFILE")
+    add_test(NAME macsign_profile_needs_entitlements
+        COMMAND "${CMAKE_COMMAND}" ${_cysec_base} -DIDENTITY=ABCDEF
+            "-DPROFILE=${_cysec_fx}/not-a-profile.provisionprofile" -P "${_cysec_sign}")
+    set_tests_properties(macsign_profile_needs_entitlements PROPERTIES
+        PASS_REGULAR_EXPRESSION "CYSEC_GUI_ENGINE_ENTITLEMENTS")
+    add_test(NAME macsign_entitlements_need_real_identity
+        COMMAND "${CMAKE_COMMAND}" ${_cysec_base} -DIDENTITY=-
+            "-DENTITLEMENTS=${_cysec_fx}/filled.entitlements"
+            "-DPROFILE=${_cysec_fx}/not-a-profile.provisionprofile" -P "${_cysec_sign}")
+    set_tests_properties(macsign_entitlements_need_real_identity PROPERTIES
+        PASS_REGULAR_EXPRESSION "Apple Development or Developer ID")
+    add_test(NAME macsign_entitlements_reject_template
+        COMMAND "${CMAKE_COMMAND}" ${_cysec_base} -DIDENTITY=ABCDEF
+            "-DENTITLEMENTS=${CMAKE_CURRENT_SOURCE_DIR}/../app/macos/engine-topology-observation.entitlements.example"
+            "-DPROFILE=${_cysec_fx}/not-a-profile.provisionprofile" -P "${_cysec_sign}")
+    set_tests_properties(macsign_entitlements_reject_template PROPERTIES
+        PASS_REGULAR_EXPRESSION "TEAMID")
+    add_test(NAME macsign_profile_must_decode
+        COMMAND "${CMAKE_COMMAND}" ${_cysec_base} -DIDENTITY=ABCDEF
+            "-DENTITLEMENTS=${_cysec_fx}/filled.entitlements"
+            "-DPROFILE=${_cysec_fx}/not-a-profile.provisionprofile" -P "${_cysec_sign}")
+    set_tests_properties(macsign_profile_must_decode PROPERTIES
+        PASS_REGULAR_EXPRESSION "cannot decode the provisioning profile")
 endif()
 
 # tst_language builds a one-string catalogue at runtime to prove the

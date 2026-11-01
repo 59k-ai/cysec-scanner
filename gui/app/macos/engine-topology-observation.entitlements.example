@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements for the bundled scan engine (CYSEC_GUI_ENGINE_ENTITLEMENTS).
+  Copy this file outside the repository, replace TEAMID with your Apple team
+  ID (three places) and keep the bundle identifier in step with the App ID of
+  the provisioning profile. See gui/README.md, "macOS: MAC addresses without
+  administrator rights (untested)".
+-->
+<plist version="1.0">
+<dict>
+    <key>com.apple.application-identifier</key>
+    <string>TEAMID.ai.59k.cysec-scanner-gui</string>
+    <key>com.apple.developer.team-identifier</key>
+    <string>TEAMID</string>
+    <key>com.apple.developer.networking.topology-observation</key>
+    <true/>
+</dict>
+</plist>

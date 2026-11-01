@@ -40,6 +40,7 @@ private slots:
     void signatureBindsInfoPlist();
     void signatureVerifies();
     void nestedEngineSigned();
+    void restrictedEntitlementOnlyWhenConfigured();
 
 private:
     struct Run
@@ -114,6 +115,35 @@ void TstMacBundle::nestedEngineSigned()
     const Run r = run(QStringLiteral("/usr/bin/codesign"),
                       {QStringLiteral("--verify"), QStringLiteral("--strict"), engine});
     QVERIFY2(r.exitCode == 0, qPrintable(r.err));
+}
+
+// The topology-observation entitlement (MACs without administrator rights) is
+// restricted: without a matching provisioning profile macOS kills the process
+// at launch. It must therefore appear only when CYSEC_GUI_ENGINE_ENTITLEMENTS
+// and CYSEC_GUI_PROVISIONING_PROFILE are configured, never on the default
+// ad-hoc or plain Apple Development build.
+void TstMacBundle::restrictedEntitlementOnlyWhenConfigured()
+{
+    const QString profile = bundle() + QStringLiteral("/Contents/embedded.provisionprofile");
+    const QString engine = bundle() + QStringLiteral("/Contents/MacOS/cysec-scanner");
+    const QString key = QStringLiteral("com.apple.developer.networking.topology-observation");
+#if CYSEC_GUI_PROVISIONING_PROFILE_SET
+    QVERIFY2(QFileInfo(profile).isFile(), "configured profile must be embedded");
+    if (!QFileInfo(engine).isFile())
+        QSKIP("no engine bundled");
+    const Run r = run(QStringLiteral("/usr/bin/codesign"),
+                      {QStringLiteral("-d"), QStringLiteral("--entitlements"), QStringLiteral("-"),
+                       QStringLiteral("--xml"), engine});
+    QVERIFY2(r.out.contains(key), qPrintable(r.out + r.err));
+#else
+    QVERIFY2(!QFileInfo(profile).exists(), "default build must not embed a provisioning profile");
+    if (!QFileInfo(engine).isFile())
+        QSKIP("no engine bundled");
+    const Run r = run(QStringLiteral("/usr/bin/codesign"),
+                      {QStringLiteral("-d"), QStringLiteral("--entitlements"), QStringLiteral("-"),
+                       QStringLiteral("--xml"), engine});
+    QVERIFY2(!r.out.contains(key) && !r.err.contains(key), "default engine must not carry the entitlement");
+#endif
 }
 
 QTEST_MAIN(TstMacBundle)
