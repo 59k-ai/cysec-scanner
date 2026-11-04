@@ -7,13 +7,20 @@ name: release
 # published automatically. Tags with a pre-release suffix (v0.1.3-rc1) become
 # pre-releases.
 #
+# The same job also builds an unsigned per-machine x64 MSI from the identical
+# bundle with WiX Toolset 5.0.2 (MS-RL; WiX 6 and later are avoided because of
+# the FireGiant Open Source Maintenance Fee EULA), installs, version-checks and
+# uninstalls it on the runner, and attaches it next to the zip. SHA256SUMS
+# covers both files.
+#
 # Modelled on gui.yml (same Qt 6.12.0 ship toolchain, same pinned
 # install-qt-action and aqtinstall source, Go 1.27.x with check-latest, every
 # action pinned by full commit SHA, no failure-suppression). The build job has
 # a read-only token; only the publish job may write, and it only creates the
 # draft release from the uploaded artifact.
 #
-# The zip is NOT code-signed yet, so Windows SmartScreen warns on first run.
+# Neither the zip nor the MSI is code-signed yet, so Windows SmartScreen warns
+# on first run.
 on:
   push:
     tags:
@@ -47,6 +54,16 @@ jobs:
           echo "CYSEC_TAG=$tag" >> "$GITHUB_ENV"
           echo "CYSEC_DIST=$temp/cysec-scanner-$tag-windows-x64" >> "$GITHUB_ENV"
           echo "CYSEC_ZIP=$temp/cysec-scanner-$tag-windows-x64.zip" >> "$GITHUB_ENV"
+          # MSI ProductVersion is numeric only, so v0.1.3-rc1 and v0.1.3 both
+          # become 0.1.3 (hence AllowSameVersionUpgrades in the .wxs).
+          v="${tag#v}"
+          v="${v%%-*}"
+          if [[ ! $v =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "tag $tag does not map to an MSI version X.Y.Z"
+            exit 1
+          fi
+          echo "CYSEC_MSI_VERSION=$v" >> "$GITHUB_ENV"
+          echo "CYSEC_MSI=$temp/cysec-scanner-$tag-windows-x64.msi" >> "$GITHUB_ENV"
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -119,14 +136,98 @@ jobs:
           echo "engine --version: $got"
           case "$got" in *"$CYSEC_TAG"*) ;; *) echo "engine version does not match $CYSEC_TAG"; exit 1 ;; esac
 
-      - name: Zip and checksum
+      - name: Zip the bundle
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           Compress-Archive -Path $env:CYSEC_DIST -DestinationPath $env:CYSEC_ZIP
-          $hash = (Get-FileHash -Algorithm SHA256 $env:CYSEC_ZIP).Hash.ToLower()
-          $name = Split-Path -Leaf $env:CYSEC_ZIP
-          "$hash  $name" | Out-File -Encoding ascii -NoNewline "$env:RUNNER_TEMP/SHA256SUMS"
-          Get-Content "$env:RUNNER_TEMP/SHA256SUMS"
+
+      # windows-2022 hosted images ship the .NET SDK (8.x) and WiX 5 runs on
+      # .NET 6+, so no setup-dotnet action is needed (if one ever is, pin it by
+      # SHA). The tool comes from nuget.org at an exact version and the
+      # installed version is asserted. No `wix extension add` is needed because
+      # the .wxs uses no UI extension; any future extension must be pinned via
+      # `wix extension add -g <Ext>/5.0.2` (D-01).
+      - name: Install WiX Toolset 5.0.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet --list-sdks
+          dotnet tool install --global wix --version 5.0.2
+          echo "$(cygpath -w "$USERPROFILE")\.dotnet\tools" >> "$GITHUB_PATH"
+          got="$("$(cygpath -u "$USERPROFILE")/.dotnet/tools/wix.exe" --version)"
+          echo "wix --version: $got"
+          case "$got" in 5.0.2*) ;; *) echo "expected WiX 5.0.2, got $got"; exit 1 ;; esac
+
+      # Validation warnings (e.g. ICE57 on the Start Menu shortcut component)
+      # are acceptable, so the build deliberately does not pass -wx.
+      - name: Build the MSI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # CYSEC_DIST/CYSEC_MSI use forward slashes (cygpath -m); WiX and
+          # msiexec get native backslash paths.
+          $bundle = [IO.Path]::GetFullPath($env:CYSEC_DIST)
+          $msi = [IO.Path]::GetFullPath($env:CYSEC_MSI)
+          wix build packaging/windows/cysec-scanner.wxs -arch x64 `
+            -d "Version=$env:CYSEC_MSI_VERSION" -d "BundleDir=$bundle" -o $msi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path $msi)) { throw "MSI not produced" }
+          # Authenticode signing of the .msi (signtool) goes here, before checksums, once a code-signing certificate exists.
+
+      # The runner is admin, so the per-machine install is exercised exactly as
+      # GPO / Intune would run it. The installed paths prove the directory
+      # layout the GUI needs (engine next to the GUI).
+      - name: Smoke-test the MSI (install, verify, uninstall)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = [IO.Path]::GetFullPath($env:CYSEC_MSI)
+          $installLog = Join-Path $env:RUNNER_TEMP 'msi-install.log'
+          $uninstallLog = Join-Path $env:RUNNER_TEMP 'msi-uninstall.log'
+          $dir = 'C:\Program Files\Cysec Scanner'
+          $lnk = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Cysec Scanner.lnk'
+          try {
+            $p = Start-Process msiexec.exe -ArgumentList @('/i', "`"$msi`"", '/qn', '/l*v', "`"$installLog`"") -Wait -PassThru
+            if ($p.ExitCode -ne 0) { throw "msiexec /i failed with exit code $($p.ExitCode)" }
+
+            foreach ($f in @('cysec-scanner.exe', 'cysec-scanner-gui.exe', 'Qt6Core.dll')) {
+              if (-not (Test-Path (Join-Path $dir $f))) { throw "installed file missing: $dir\$f" }
+            }
+
+            $got = (& "$dir\cysec-scanner.exe" --version | Out-String).Trim()
+            Write-Host "installed engine --version: $got"
+            if ($got -ne $env:CYSEC_TAG) { throw "installed engine version '$got' does not equal $env:CYSEC_TAG" }
+
+            if (-not (Test-Path $lnk)) { throw "Start Menu shortcut missing: $lnk" }
+
+            $p = Start-Process msiexec.exe -ArgumentList @('/x', "`"$msi`"", '/qn', '/l*v', "`"$uninstallLog`"") -Wait -PassThru
+            if ($p.ExitCode -ne 0) { throw "msiexec /x failed with exit code $($p.ExitCode)" }
+            if (Test-Path $dir) { throw "install directory still present after uninstall: $dir" }
+            if (Test-Path $lnk) { throw "Start Menu shortcut still present after uninstall: $lnk" }
+          } catch {
+            foreach ($log in @($uninstallLog, $installLog)) {
+              if (Test-Path $log) {
+                Write-Host "----- last 200 lines of $log -----"
+                Get-Content -Tail 200 $log
+              }
+            }
+            throw
+          }
+
+      # sha256sum-compatible (lowercase hash, two spaces, LF, ASCII) so
+      # `sha256sum -c SHA256SUMS` works on Linux.
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $lines = foreach ($f in @($env:CYSEC_ZIP, $env:CYSEC_MSI)) {
+            $hash = (Get-FileHash -Algorithm SHA256 $f).Hash.ToLower()
+            "$hash  $(Split-Path -Leaf $f)"
+          }
+          $sums = Join-Path $env:RUNNER_TEMP 'SHA256SUMS'
+          [IO.File]::WriteAllText($sums, (($lines -join "`n") + "`n"), [Text.Encoding]::ASCII)
+          Get-Content $sums
 
       - name: Upload the bundle
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -134,6 +235,7 @@ jobs:
           name: windows-x64
           path: |
             ${{ runner.temp }}/cysec-scanner-*-windows-x64.zip
+            ${{ runner.temp }}/cysec-scanner-*-windows-x64.msi
             ${{ runner.temp }}/SHA256SUMS
           if-no-files-found: error
 
