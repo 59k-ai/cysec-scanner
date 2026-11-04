@@ -56,6 +56,36 @@ Without administrator rights, two other sources still apply:
 randomized ("private Wi-Fi address", locally administered) have a MAC but no
 vendor, because such addresses are not registered with the IEEE.
 
+## Install on Windows
+
+Download from the
+[GitHub Releases page](https://github.com/59k-ai/cysec-scanner/releases). Each
+release has a `SHA256SUMS` file. To verify a download, run
+`Get-FileHash -Algorithm SHA256 <file>` in PowerShell and compare the hash with
+that file's line in `SHA256SUMS`. Both downloads are x64 only.
+
+**MSI (recommended):** `cysec-scanner-<version>-windows-x64.msi`. It needs
+administrator rights, installs for all users to `C:\Program Files\Cysec Scanner`
+and adds a "Cysec Scanner" entry to the Start Menu. To uninstall, use
+Settings → Apps. The installer is not code-signed yet, so SmartScreen shows
+"Windows protected your PC". Click **More info → Run anyway** to continue.
+Installing a newer release upgrades the existing one in place. Installing an
+older release over a newer one is refused.
+
+For IT deployment (GPO, Intune), install and uninstall silently from an elevated
+prompt:
+
+```bat
+msiexec /i cysec-scanner-<version>-windows-x64.msi /qn
+msiexec /x cysec-scanner-<version>-windows-x64.msi /qn
+```
+
+**Portable zip:** `cysec-scanner-<version>-windows-x64.zip` needs no
+administrator rights. Extract it anywhere and run `cysec-scanner-gui.exe`.
+Keep `cysec-scanner.exe` in the same folder, because the GUI only looks for the
+engine next to itself. The zip includes the Qt and Visual C++ runtimes, so
+nothing else has to be installed.
+
 ## License
 
 Apache-2.0. See [`LICENSE`](./LICENSE). The Apache `NOTICE` obligation is
