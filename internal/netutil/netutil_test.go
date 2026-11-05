@@ -44,6 +44,48 @@ func TestLocalLANNetworksFrom(t *testing.T) {
 	}
 }
 
+// TestLocalLANNetworksFromSkipsLinkLocal proves a link-local address on an
+// otherwise usable interface is not a scan target, while a routable address on
+// the same interface still is.
+func TestLocalLANNetworksFromSkipsLinkLocal(t *testing.T) {
+	t.Parallel()
+	views := []ifaceView{
+		{name: "eth0", flags: net.FlagUp | net.FlagBroadcast, addrs: []*net.IPNet{
+			ifAddr(t, "169.254.10.20/16"),
+			ifAddr(t, "192.0.2.5/24"),
+		}},
+		{name: "eth1", flags: net.FlagUp | net.FlagBroadcast, addrs: []*net.IPNet{ifAddr(t, "169.254.30.40/16")}},
+	}
+	got := localLANNetworksFrom(views)
+	want := []string{"192.0.2.0/24"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("localLANNetworksFrom = %v, want %v", got, want)
+	}
+}
+
+// TestFallbackNetworksShape proves the route-lookup fallback yields either no
+// scope, on a host with no route, or one masked IPv4 /24. Connecting a UDP socket
+// sends no packet, so this stays hermetic.
+func TestFallbackNetworksShape(t *testing.T) {
+	t.Parallel()
+	got := fallbackNetworks()
+	if len(got) > 1 {
+		t.Fatalf("fallbackNetworks = %v, want at most one network", got)
+	}
+	for _, c := range got {
+		ip, n, err := net.ParseCIDR(c)
+		if err != nil {
+			t.Fatalf("fallback %q does not parse: %v", c, err)
+		}
+		if ones, bits := n.Mask.Size(); ones != 24 || bits != 32 {
+			t.Fatalf("fallback %q is not an IPv4 /24", c)
+		}
+		if !ip.Equal(n.IP) {
+			t.Fatalf("fallback %q is not masked to its network", c)
+		}
+	}
+}
+
 // TestPingFallback proves pro-bing -> system-ping selection: when the pro-bing
 // probe reports no reply, pingHost calls the system-ping fallback; when pro-bing
 // reports a reply, the fallback is not called (Pattern 2 / Pitfall 1).

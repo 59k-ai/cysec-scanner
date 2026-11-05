@@ -17,6 +17,20 @@ func TestDefaultPortSetCount(t *testing.T) {
 	}
 }
 
+// TestDefaultPortSetLiteral pins the exact default set. The classification rules
+// key off these ports, so a changed member shifts verdicts even at the same count.
+func TestDefaultPortSetLiteral(t *testing.T) {
+	want := []int{
+		21, 22, 23, 25, 53, 80, 88, 135, 139, 143,
+		161, 389, 443, 445, 465, 554, 587, 631, 636, 993,
+		995, 1433, 2049, 3268, 3306, 3389, 5432, 5900, 5985, 5986,
+		7000, 8008, 8080, 8443, 9000, 9100, 27017,
+	}
+	if !reflect.DeepEqual(DefaultPortSet, want) {
+		t.Fatalf("DefaultPortSet = %v, want %v", DefaultPortSet, want)
+	}
+}
+
 // TestParsePorts covers the single/range/dedup/sort/invalid cases of the --ports
 // override parser (D-02).
 func TestParsePorts(t *testing.T) {

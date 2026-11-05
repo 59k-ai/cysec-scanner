@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"slices"
 	"sort"
 	"testing"
 	"time"
@@ -778,4 +779,40 @@ func entryKeys(entries map[string]hostEntry) []string {
 	}
 	sort.Strings(ks)
 	return ks
+}
+
+// TestRunScopeSelection proves an explicit scope wins over the local networks and
+// that every segment of a multi-segment scope is swept. With no explicit scope the
+// local networks are used.
+func TestRunScopeSelection(t *testing.T) {
+	origSweep, origARP, origLocal := sweepHosts, arpTable, localNetworks
+	defer func() { sweepHosts, arpTable, localNetworks = origSweep, origARP, origLocal }()
+
+	var swept []string
+	sweepHosts = func(_ context.Context, cidrs []string, _ capabilities.Capabilities, _ netutil.PingFunc) []netutil.SweepResult {
+		swept = cidrs
+		return nil
+	}
+	arpTable = func() map[string]string { return map[string]string{} }
+	localNetworks = func() []string { return []string{"198.51.100.0/24"} }
+
+	for _, tc := range []struct {
+		name  string
+		cidrs []string
+		want  []string
+	}{
+		{"explicit multi-segment", []string{"192.0.2.0/30", "203.0.113.0/30"}, []string{"192.0.2.0/30", "203.0.113.0/30"}},
+		{"empty uses local networks", nil, []string{"198.51.100.0/24"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			swept = nil
+			st := scanstate.New("full", "engine/test")
+			if err := Run(context.Background(), st, capabilities.Capabilities{}, tc.cidrs); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if !slices.Equal(swept, tc.want) {
+				t.Fatalf("swept %v, want %v", swept, tc.want)
+			}
+		})
+	}
 }
