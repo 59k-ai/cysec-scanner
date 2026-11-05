@@ -5,9 +5,11 @@ package payload
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -502,21 +504,74 @@ func TestV8NormalizeKbsNotNull(t *testing.T) {
 	}
 }
 
+// contractDir holds a byte-identical copy of the frozen v8 contract fixtures.
+const contractDir = "testdata/contract_v8"
+
+// strictDecode decodes with unknown fields rejected, as a strict consumer does.
+func strictDecode(raw []byte) (Payload, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	var p Payload
+	err := dec.Decode(&p)
+	return p, err
+}
+
+// TestV8ContractManifest proves the copied fixtures have not drifted. The manifest
+// itself is pinned, each listed file is checked, and only the two files this
+// repository deliberately does not carry may be absent: the schema names a private
+// host in its $id, and the canonical vectors need an encoder this library does not
+// have, because stamping the payload hash is the consumer's job.
+func TestV8ContractManifest(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(contractDir, "MANIFEST.sha256"))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	const wantManifest = "8b46c12daf1f2af84e6622a2cb0edaeae71e66c73c654ea5ea7544e0ef6a60b4"
+	if got := fmt.Sprintf("%x", sha256.Sum256(raw)); got != wantManifest {
+		t.Fatalf("manifest sha256 = %s, want %s", got, wantManifest)
+	}
+	omitted := map[string]bool{"payload.schema.json": true, "canonical/vectors.json": true}
+	checked := 0
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			t.Fatalf("malformed manifest line %q", line)
+		}
+		want, name := fields[0], fields[1]
+		body, err := os.ReadFile(filepath.Join(contractDir, filepath.FromSlash(name)))
+		if omitted[name] {
+			if err == nil {
+				t.Errorf("%s is present, want it left out", name)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("read %s: %v", name, err)
+			continue
+		}
+		if got := fmt.Sprintf("%x", sha256.Sum256(body)); got != want {
+			t.Errorf("%s sha256 = %s, want %s", name, got, want)
+		}
+		checked++
+	}
+	if checked != 6 {
+		t.Errorf("checked %d fixtures, want 6", checked)
+	}
+}
+
 // TestV8FixturesStrictRoundTrip decodes the contract fixtures with unknown
 // fields rejected, re-marshals them, and compares the trees, so a field the
 // mirror drops or renames fails here. The comparison is on decoded JSON because
 // the fixtures are key-sorted and the Go encoder writes struct order.
 func TestV8FixturesStrictRoundTrip(t *testing.T) {
-	for _, path := range []string{"testdata/v8_full.json", "testdata/v8_statuses.json"} {
-		t.Run(path, func(t *testing.T) {
-			raw, err := os.ReadFile(path)
+	for _, name := range []string{"v8_full.json", "v8_statuses.json", "v8_legacy.json", "v8_diacritics.json"} {
+		t.Run(name, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join(contractDir, "fixtures", name))
 			if err != nil {
 				t.Fatalf("read fixture: %v", err)
 			}
-			dec := json.NewDecoder(bytes.NewReader(raw))
-			dec.DisallowUnknownFields()
-			var p Payload
-			if err := dec.Decode(&p); err != nil {
+			p, err := strictDecode(raw)
+			if err != nil {
 				t.Fatalf("strict decode: %v", err)
 			}
 			if p.SchemaVersion != SchemaVersion {
@@ -535,6 +590,70 @@ func TestV8FixturesStrictRoundTrip(t *testing.T) {
 			}
 			if !reflect.DeepEqual(want, got) {
 				t.Errorf("round-trip changed the document\n--- fixture ---\n%s\n--- output ---\n%s", raw, out)
+			}
+		})
+	}
+}
+
+// TestV7ShapedBodyStillDecodes proves a body without the v8 keys is accepted, and
+// that the keys come back null: every v8 field is nullable.
+func TestV7ShapedBodyStillDecodes(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(contractDir, "fixtures", "v7_shaped.json"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	p, err := strictDecode(raw)
+	if err != nil {
+		t.Fatalf("strict decode: %v", err)
+	}
+	if p.SchemaVersion != 7 {
+		t.Errorf("schema_version = %d, want 7", p.SchemaVersion)
+	}
+	for i, a := range p.Assets {
+		if a.OSBuild != nil || a.UBR != nil || a.InstalledKbs != nil {
+			t.Errorf("asset %d has v8 fields set: %+v", i, a)
+		}
+	}
+}
+
+// TestV8RejectCasesAtTheDecoder runs the contract's invalid bodies through the
+// strict decoder. Three are shape errors it must refuse. The other five are value
+// rules (status enum, KB id and build patterns, kbs only when collected, ubr range)
+// that a type mirror cannot express: they decode here on purpose, and a consumer
+// that sends payloads has to validate them.
+func TestV8RejectCasesAtTheDecoder(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(contractDir, "fixtures", "reject_cases.json"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	var cases []struct {
+		Name string          `json:"name"`
+		Body json.RawMessage `json:"body"`
+	}
+	if err := json.Unmarshal(raw, &cases); err != nil {
+		t.Fatalf("decode cases: %v", err)
+	}
+	wantRefused := map[string]bool{
+		"asset_unknown_key":         true,
+		"installed_kbs_unknown_key": true,
+		"ubr_float":                 true,
+		"kb_lowercase":              false,
+		"kbs_while_unavailable":     false,
+		"os_build_bare_build":       false,
+		"status_partial":            false,
+		"ubr_negative":              false,
+	}
+	if len(cases) != len(wantRefused) {
+		t.Fatalf("got %d cases, want %d", len(cases), len(wantRefused))
+	}
+	for _, c := range cases {
+		t.Run(c.Name, func(t *testing.T) {
+			want, known := wantRefused[c.Name]
+			if !known {
+				t.Fatalf("unexpected case %q", c.Name)
+			}
+			if _, err := strictDecode(c.Body); (err != nil) != want {
+				t.Errorf("decode error = %v, want refused = %v", err, want)
 			}
 		})
 	}

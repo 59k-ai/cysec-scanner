@@ -1,0 +1,98 @@
+{
+  "assets": [
+    {
+      "asset_type": "server",
+      "classification_evidence": null,
+      "external_id": "wmi:srv-ișțăîâ-01",
+      "fqdn": "",
+      "hostname": "srv-ișțăîâ-ȘȚ",
+      "installed_kbs": {
+        "kbs": [
+          "KB5066782"
+        ],
+        "status": "collected"
+      },
+      "internet_facing": false,
+      "ip_address": "192.0.2.60",
+      "mac_address": null,
+      "mac_vendor": null,
+      "managed": true,
+      "network_aliases": [],
+      "operating_system": "Microsoft Windows Server 2022 Standard",
+      "os_build": "10.0.20348",
+      "os_fingerprint_hint": "",
+      "os_guess": "Windows Server 2022",
+      "os_guess_confidence": 0.9876543210987654,
+      "os_guess_source": "os-signature-v1",
+      "services": [],
+      "ubr": 4294
+    },
+    {
+      "asset_type": "workstation",
+      "classification_evidence": null,
+      "external_id": "wmi:ws-şţ-äöüß-02",
+      "fqdn": "",
+      "hostname": "ws-şţ-ÄÖÜ-02",
+      "installed_kbs": {
+        "kbs": [],
+        "status": "collected"
+      },
+      "internet_facing": false,
+      "ip_address": "198.51.100.61",
+      "mac_address": null,
+      "mac_vendor": null,
+      "managed": true,
+      "network_aliases": [],
+      "operating_system": "Microsoft Windows 11 Pro",
+      "os_build": "10.0.26100",
+      "os_fingerprint_hint": "",
+      "os_guess": null,
+      "os_guess_confidence": null,
+      "os_guess_source": null,
+      "services": [],
+      "ubr": 6899
+    }
+  ],
+  "collector_version": "0.0.0-contract",
+  "configuration_checks": [
+    {
+      "asset_external_id": "wmi:srv-ișțăîâ-01",
+      "asset_id": "",
+      "check_code": "CONTRACT-DIACRITICS",
+      "description": "line one line two & <tag> ș ş",
+      "expected_value": "",
+      "observed_value": "",
+      "service_port": null,
+      "service_protocol": "tcp",
+      "severity": "info",
+      "status": "pass",
+      "title": "Prüfung <a> & <b>"
+    }
+  ],
+  "identities": [
+    {
+      "department": "",
+      "display_name": "Operator Ștefan Țară & <Grüße> ş ţ",
+      "email": "",
+      "external_id": "",
+      "is_active": true,
+      "is_privileged": false,
+      "last_login_at": null,
+      "mfa_enabled": false,
+      "mfa_method": "",
+      "source": "local",
+      "username": "operator-ro"
+    }
+  ],
+  "missing_kbs": [],
+  "password_policies": [],
+  "payload_id_hash": null,
+  "payload_type": "full",
+  "scan_metadata": null,
+  "scan_status": null,
+  "schema_version": 8,
+  "service_exposures": [],
+  "software_inventory": [],
+  "tls_probes": [],
+  "vulnerabilities": []
+}

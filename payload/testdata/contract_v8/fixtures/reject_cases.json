@@ -1,0 +1,403 @@
+[
+  {
+    "body": {
+      "assets": [
+        {
+          "asset_type": "server",
+          "classification_evidence": null,
+          "external_id": "wmi:srv-ro-01",
+          "fqdn": "srv-ro-01.example.test",
+          "hostname": "srv-ro-01",
+          "installed_kbs": {
+            "kbs": [
+              "KB5066782",
+              "KB890830"
+            ],
+            "status": "collected"
+          },
+          "internet_facing": false,
+          "ip_address": "192.0.2.10",
+          "mac_address": null,
+          "mac_vendor": null,
+          "managed": true,
+          "network_aliases": [],
+          "operating_system": "Microsoft Windows Server 2022 Standard",
+          "os_build": "10.0.20348",
+          "os_fingerprint_hint": "",
+          "os_guess": null,
+          "os_guess_confidence": null,
+          "os_guess_source": null,
+          "os_product_type": "server",
+          "services": [],
+          "ubr": 4294
+        }
+      ],
+      "collector_version": "0.0.0-contract",
+      "configuration_checks": [],
+      "identities": [],
+      "missing_kbs": [],
+      "password_policies": [],
+      "payload_id_hash": null,
+      "payload_type": "full",
+      "scan_metadata": null,
+      "scan_status": null,
+      "schema_version": 8,
+      "service_exposures": [],
+      "software_inventory": [],
+      "tls_probes": [],
+      "vulnerabilities": []
+    },
+    "cloud_rejects": false,
+    "name": "asset_unknown_key"
+  },
+  {
+    "body": {
+      "assets": [
+        {
+          "asset_type": "server",
+          "classification_evidence": null,
+          "external_id": "wmi:srv-ro-01",
+          "fqdn": "srv-ro-01.example.test",
+          "hostname": "srv-ro-01",
+          "installed_kbs": {
+            "kbs": [
+              "KB5066782",
+              "KB890830"
+            ],
+            "source": "qfe",
+            "status": "collected"
+          },
+          "internet_facing": false,
+          "ip_address": "192.0.2.10",
+          "mac_address": null,
+          "mac_vendor": null,
+          "managed": true,
+          "network_aliases": [],
+          "operating_system": "Microsoft Windows Server 2022 Standard",
+          "os_build": "10.0.20348",
+          "os_fingerprint_hint": "",
+          "os_guess": null,
+          "os_guess_confidence": null,
+          "os_guess_source": null,
+          "services": [],
+          "ubr": 4294
+        }
+      ],
+      "collector_version": "0.0.0-contract",
+      "configuration_checks": [],
+      "identities": [],
+      "missing_kbs": [],
+      "password_policies": [],
+      "payload_id_hash": null,
+      "payload_type": "full",
+      "scan_metadata": null,
+      "scan_status": null,
+      "schema_version": 8,
+      "service_exposures": [],
+      "software_inventory": [],
+      "tls_probes": [],
+      "vulnerabilities": []
+    },
+    "cloud_rejects": false,
+    "name": "installed_kbs_unknown_key"
+  },
+  {
+    "body": {
+      "assets": [
+        {
+          "asset_type": "server",
+          "classification_evidence": null,
+          "external_id": "wmi:srv-ro-01",
+          "fqdn": "srv-ro-01.example.test",
+          "hostname": "srv-ro-01",
+          "installed_kbs": {
+            "kbs": [
+              "kb5066782"
+            ],
+            "status": "collected"
+          },
+          "internet_facing": false,
+          "ip_address": "192.0.2.10",
+          "mac_address": null,
+          "mac_vendor": null,
+          "managed": true,
+          "network_aliases": [],
+          "operating_system": "Microsoft Windows Server 2022 Standard",
+          "os_build": "10.0.20348",
+          "os_fingerprint_hint": "",
+          "os_guess": null,
+          "os_guess_confidence": null,
+          "os_guess_source": null,
+          "services": [],
+          "ubr": 4294
+        }
+      ],
+      "collector_version": "0.0.0-contract",
+      "configuration_checks": [],
+      "identities": [],
+      "missing_kbs": [],
+      "password_policies": [],
+      "payload_id_hash": null,
+      "payload_type": "full",
+      "scan_metadata": null,
+      "scan_status": null,
+      "schema_version": 8,
+      "service_exposures": [],
+      "software_inventory": [],
+      "tls_probes": [],
+      "vulnerabilities": []
+    },
+    "cloud_rejects": true,
+    "name": "kb_lowercase"
+  },
+  {
+    "body": {
+      "assets": [
+        {
+          "asset_type": "server",
+          "classification_evidence": null,
+          "external_id": "wmi:srv-ro-01",
+          "fqdn": "srv-ro-01.example.test",
+          "hostname": "srv-ro-01",
+          "installed_kbs": {
+            "kbs": [
+              "KB5066782",
+              "KB890830"
+            ],
+            "status": "unavailable"
+          },
+          "internet_facing": false,
+          "ip_address": "192.0.2.10",
+          "mac_address": null,
+          "mac_vendor": null,
+          "managed": true,
+          "network_aliases": [],
+          "operating_system": "Microsoft Windows Server 2022 Standard",
+          "os_build": "10.0.20348",
+          "os_fingerprint_hint": "",
+          "os_guess": null,
+          "os_guess_confidence": null,
+          "os_guess_source": null,
+          "services": [],
+          "ubr": 4294
+        }
+      ],
+      "collector_version": "0.0.0-contract",
+      "configuration_checks": [],
+      "identities": [],
+      "missing_kbs": [],
+      "password_policies": [],
+      "payload_id_hash": null,
+      "payload_type": "full",
+      "scan_metadata": null,
+      "scan_status": null,
+      "schema_version": 8,
+      "service_exposures": [],
+      "software_inventory": [],
+      "tls_probes": [],
+      "vulnerabilities": []
+    },
+    "cloud_rejects": true,
+    "name": "kbs_while_unavailable"
+  },
+  {
+    "body": {
+      "assets": [
+        {
+          "asset_type": "server",
+          "classification_evidence": null,
+          "external_id": "wmi:srv-ro-01",
+          "fqdn": "srv-ro-01.example.test",
+          "hostname": "srv-ro-01",
+          "installed_kbs": {
+            "kbs": [
+              "KB5066782",
+              "KB890830"
+            ],
+            "status": "collected"
+          },
+          "internet_facing": false,
+          "ip_address": "192.0.2.10",
+          "mac_address": null,
+          "mac_vendor": null,
+          "managed": true,
+          "network_aliases": [],
+          "operating_system": "Microsoft Windows Server 2022 Standard",
+          "os_build": "20348",
+          "os_fingerprint_hint": "",
+          "os_guess": null,
+          "os_guess_confidence": null,
+          "os_guess_source": null,
+          "services": [],
+          "ubr": 4294
+        }
+      ],
+      "collector_version": "0.0.0-contract",
+      "configuration_checks": [],
+      "identities": [],
+      "missing_kbs": [],
+      "password_policies": [],
+      "payload_id_hash": null,
+      "payload_type": "full",
+      "scan_metadata": null,
+      "scan_status": null,
+      "schema_version": 8,
+      "service_exposures": [],
+      "software_inventory": [],
+      "tls_probes": [],
+      "vulnerabilities": []
+    },
+    "cloud_rejects": true,
+    "name": "os_build_bare_build"
+  },
+  {
+    "body": {
+      "assets": [
+        {
+          "asset_type": "server",
+          "classification_evidence": null,
+          "external_id": "wmi:srv-ro-01",
+          "fqdn": "srv-ro-01.example.test",
+          "hostname": "srv-ro-01",
+          "installed_kbs": {
+            "kbs": [
+              "KB5066782",
+              "KB890830"
+            ],
+            "status": "partial"
+          },
+          "internet_facing": false,
+          "ip_address": "192.0.2.10",
+          "mac_address": null,
+          "mac_vendor": null,
+          "managed": true,
+          "network_aliases": [],
+          "operating_system": "Microsoft Windows Server 2022 Standard",
+          "os_build": "10.0.20348",
+          "os_fingerprint_hint": "",
+          "os_guess": null,
+          "os_guess_confidence": null,
+          "os_guess_source": null,
+          "services": [],
+          "ubr": 4294
+        }
+      ],
+      "collector_version": "0.0.0-contract",
+      "configuration_checks": [],
+      "identities": [],
+      "missing_kbs": [],
+      "password_policies": [],
+      "payload_id_hash": null,
+      "payload_type": "full",
+      "scan_metadata": null,
+      "scan_status": null,
+      "schema_version": 8,
+      "service_exposures": [],
+      "software_inventory": [],
+      "tls_probes": [],
+      "vulnerabilities": []
+    },
+    "cloud_rejects": true,
+    "name": "status_partial"
+  },
+  {
+    "body": {
+      "assets": [
+        {
+          "asset_type": "server",
+          "classification_evidence": null,
+          "external_id": "wmi:srv-ro-01",
+          "fqdn": "srv-ro-01.example.test",
+          "hostname": "srv-ro-01",
+          "installed_kbs": {
+            "kbs": [
+              "KB5066782",
+              "KB890830"
+            ],
+            "status": "collected"
+          },
+          "internet_facing": false,
+          "ip_address": "192.0.2.10",
+          "mac_address": null,
+          "mac_vendor": null,
+          "managed": true,
+          "network_aliases": [],
+          "operating_system": "Microsoft Windows Server 2022 Standard",
+          "os_build": "10.0.20348",
+          "os_fingerprint_hint": "",
+          "os_guess": null,
+          "os_guess_confidence": null,
+          "os_guess_source": null,
+          "services": [],
+          "ubr": 4294.5
+        }
+      ],
+      "collector_version": "0.0.0-contract",
+      "configuration_checks": [],
+      "identities": [],
+      "missing_kbs": [],
+      "password_policies": [],
+      "payload_id_hash": null,
+      "payload_type": "full",
+      "scan_metadata": null,
+      "scan_status": null,
+      "schema_version": 8,
+      "service_exposures": [],
+      "software_inventory": [],
+      "tls_probes": [],
+      "vulnerabilities": []
+    },
+    "cloud_rejects": true,
+    "name": "ubr_float"
+  },
+  {
+    "body": {
+      "assets": [
+        {
+          "asset_type": "server",
+          "classification_evidence": null,
+          "external_id": "wmi:srv-ro-01",
+          "fqdn": "srv-ro-01.example.test",
+          "hostname": "srv-ro-01",
+          "installed_kbs": {
+            "kbs": [
+              "KB5066782",
+              "KB890830"
+            ],
+            "status": "collected"
+          },
+          "internet_facing": false,
+          "ip_address": "192.0.2.10",
+          "mac_address": null,
+          "mac_vendor": null,
+          "managed": true,
+          "network_aliases": [],
+          "operating_system": "Microsoft Windows Server 2022 Standard",
+          "os_build": "10.0.20348",
+          "os_fingerprint_hint": "",
+          "os_guess": null,
+          "os_guess_confidence": null,
+          "os_guess_source": null,
+          "services": [],
+          "ubr": -1
+        }
+      ],
+      "collector_version": "0.0.0-contract",
+      "configuration_checks": [],
+      "identities": [],
+      "missing_kbs": [],
+      "password_policies": [],
+      "payload_id_hash": null,
+      "payload_type": "full",
+      "scan_metadata": null,
+      "scan_status": null,
+      "schema_version": 8,
+      "service_exposures": [],
+      "software_inventory": [],
+      "tls_probes": [],
+      "vulnerabilities": []
+    },
+    "cloud_rejects": true,
+    "name": "ubr_negative"
+  }
+]

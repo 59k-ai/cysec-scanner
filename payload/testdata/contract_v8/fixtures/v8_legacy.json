@@ -1,0 +1,46 @@
+{
+  "assets": [
+    {
+      "asset_type": "server",
+      "classification_evidence": null,
+      "external_id": "wmi:srv-legacy-05",
+      "fqdn": "",
+      "hostname": "srv-legacy-05",
+      "installed_kbs": {
+        "kbs": [
+          "KB2919355",
+          "KB5044343"
+        ],
+        "status": "collected"
+      },
+      "internet_facing": false,
+      "ip_address": "192.0.2.50",
+      "mac_address": null,
+      "mac_vendor": null,
+      "managed": true,
+      "network_aliases": [],
+      "operating_system": "Microsoft Windows Server 2012 R2 Standard",
+      "os_build": "6.3.9600",
+      "os_fingerprint_hint": "",
+      "os_guess": null,
+      "os_guess_confidence": null,
+      "os_guess_source": null,
+      "services": [],
+      "ubr": null
+    }
+  ],
+  "collector_version": "0.0.0-contract",
+  "configuration_checks": [],
+  "identities": [],
+  "missing_kbs": [],
+  "password_policies": [],
+  "payload_id_hash": null,
+  "payload_type": "full",
+  "scan_metadata": null,
+  "scan_status": null,
+  "schema_version": 8,
+  "service_exposures": [],
+  "software_inventory": [],
+  "tls_probes": [],
+  "vulnerabilities": []
+}
