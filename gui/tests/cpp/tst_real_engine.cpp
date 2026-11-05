@@ -78,7 +78,7 @@ void TstRealEngine::complete()
 
     const QJsonObject payload = readPayload(m_session->payloadPath());
     QVERIFY(!payload.isEmpty());
-    QCOMPARE(payload.value(QStringLiteral("schema_version")).toInt(), 7);
+    QCOMPARE(payload.value(QStringLiteral("schema_version")).toInt(), 8);
     QVERIFY(payload.contains(QStringLiteral("scan_status")));
     QVERIFY(payload.value(QStringLiteral("scan_status")).isNull());
     QVERIFY(m_events > 0);
@@ -101,7 +101,7 @@ void TstRealEngine::stop()
     QVERIFY(m_session->hasPayload());
 
     const QJsonObject payload = readPayload(m_session->payloadPath());
-    QCOMPARE(payload.value(QStringLiteral("schema_version")).toInt(), 7);
+    QCOMPARE(payload.value(QStringLiteral("schema_version")).toInt(), 8);
     QCOMPARE(payload.value(QStringLiteral("scan_status")).toString(), QStringLiteral("cancelled"));
 }
 

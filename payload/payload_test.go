@@ -4,8 +4,11 @@
 package payload
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -378,11 +381,11 @@ func TestStrictValidV6(t *testing.T) {
 	})
 }
 
-// TestSchemaVersionIsV7 is the single deliberate literal lock on the wire
-// version (D-25). Every other test tracks the SchemaVersion constant.
-func TestSchemaVersionIsV7(t *testing.T) {
-	if SchemaVersion != 7 {
-		t.Fatalf("SchemaVersion = %d, want 7", SchemaVersion)
+// TestSchemaVersionIsV8 is the single deliberate literal lock on the wire
+// version. Every other test tracks the SchemaVersion constant.
+func TestSchemaVersionIsV8(t *testing.T) {
+	if SchemaVersion != 8 {
+		t.Fatalf("SchemaVersion = %d, want 8", SchemaVersion)
 	}
 	if ScanStatusCancelled != "cancelled" {
 		t.Fatalf("ScanStatusCancelled = %q, want \"cancelled\"", ScanStatusCancelled)
@@ -420,6 +423,118 @@ func TestV7ScanStatusNullVsValue(t *testing.T) {
 				t.Fatalf("scan_status round-trip = %q, want nil", *out.ScanStatus)
 			case tc.status != nil && (out.ScanStatus == nil || *out.ScanStatus != *tc.status):
 				t.Fatalf("scan_status round-trip = %v, want %q", out.ScanStatus, *tc.status)
+			}
+		})
+	}
+}
+
+// TestV8AssetFieldsNullWhenUnset pins that the three v8 asset fields are
+// emitted as JSON null when unset. Dropping the key instead (omitempty) would
+// make "no evidence" look like a pre-v8 body.
+func TestV8AssetFieldsNullWhenUnset(t *testing.T) {
+	raw, err := json.Marshal(AssetItem{})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if want := `"os_build":null,"ubr":null,"installed_kbs":null`; !strings.Contains(string(raw), want) {
+		t.Fatalf("missing %s; json=%s", want, raw)
+	}
+}
+
+// TestV8AssetFieldsSetValues pins the wire form of the set fields, including a
+// UBR of zero, which is a real value and must not read as unset.
+func TestV8AssetFieldsSetValues(t *testing.T) {
+	raw, err := json.Marshal(AssetItem{
+		OSBuild:      ptr("10.0.20348"),
+		UBR:          ptr(int64(0)),
+		InstalledKbs: &InstalledKbs{Status: InstalledKbsCollected, Kbs: []string{"KB5066782"}},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	want := `"os_build":"10.0.20348","ubr":0,"installed_kbs":{"status":"collected","kbs":["KB5066782"]}`
+	if !strings.Contains(string(raw), want) {
+		t.Fatalf("missing %s; json=%s", want, raw)
+	}
+}
+
+// TestV8InstalledKbsStatusValues locks the literal status strings, which are
+// part of the wire contract.
+func TestV8InstalledKbsStatusValues(t *testing.T) {
+	for got, want := range map[string]string{
+		InstalledKbsCollected:    "collected",
+		InstalledKbsUnavailable:  "unavailable",
+		InstalledKbsNotAttempted: "not_attempted",
+	} {
+		if got != want {
+			t.Errorf("status constant = %q, want %q", got, want)
+		}
+	}
+}
+
+// TestV8NormalizeKbsNotNull proves Normalize turns a nil kbs slice into [] on
+// every asset that has the object, keeps collected ids, and leaves an absent
+// object null: null means "no evidence", which is not the same as an empty
+// collected inventory.
+func TestV8NormalizeKbsNotNull(t *testing.T) {
+	p := NewEmpty("full", "engine/0.0.0")
+	p.Assets = []AssetItem{
+		{ExternalID: "a", InstalledKbs: &InstalledKbs{Status: InstalledKbsUnavailable}},
+		{ExternalID: "b", InstalledKbs: &InstalledKbs{Status: InstalledKbsNotAttempted}},
+		{ExternalID: "c", InstalledKbs: &InstalledKbs{Status: InstalledKbsCollected, Kbs: []string{"KB890830"}}},
+		{ExternalID: "d"},
+	}
+	p.Normalize()
+
+	for i, want := range []string{
+		`"installed_kbs":{"status":"unavailable","kbs":[]}`,
+		`"installed_kbs":{"status":"not_attempted","kbs":[]}`,
+		`"installed_kbs":{"status":"collected","kbs":["KB890830"]}`,
+		`"installed_kbs":null`,
+	} {
+		raw, err := json.Marshal(p.Assets[i])
+		if err != nil {
+			t.Fatalf("marshal asset %d: %v", i, err)
+		}
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("asset %d: missing %s; json=%s", i, want, raw)
+		}
+	}
+}
+
+// TestV8FixturesStrictRoundTrip decodes the contract fixtures with unknown
+// fields rejected, re-marshals them, and compares the trees, so a field the
+// mirror drops or renames fails here. The comparison is on decoded JSON because
+// the fixtures are key-sorted and the Go encoder writes struct order.
+func TestV8FixturesStrictRoundTrip(t *testing.T) {
+	for _, path := range []string{"testdata/v8_full.json", "testdata/v8_statuses.json"} {
+		t.Run(path, func(t *testing.T) {
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read fixture: %v", err)
+			}
+			dec := json.NewDecoder(bytes.NewReader(raw))
+			dec.DisallowUnknownFields()
+			var p Payload
+			if err := dec.Decode(&p); err != nil {
+				t.Fatalf("strict decode: %v", err)
+			}
+			if p.SchemaVersion != SchemaVersion {
+				t.Errorf("schema_version = %d, want %d", p.SchemaVersion, SchemaVersion)
+			}
+			out, err := json.Marshal(p)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			var want, got any
+			if err := json.Unmarshal(raw, &want); err != nil {
+				t.Fatalf("decode fixture tree: %v", err)
+			}
+			if err := json.Unmarshal(out, &got); err != nil {
+				t.Fatalf("decode output tree: %v", err)
+			}
+			if !reflect.DeepEqual(want, got) {
+				t.Errorf("round-trip changed the document\n--- fixture ---\n%s\n--- output ---\n%s", raw, out)
 			}
 		})
 	}

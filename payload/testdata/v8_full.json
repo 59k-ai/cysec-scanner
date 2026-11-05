@@ -1,0 +1,71 @@
+{
+  "assets": [
+    {
+      "asset_type": "server",
+      "classification_evidence": null,
+      "external_id": "wmi:srv-ro-01",
+      "fqdn": "srv-ro-01.example.test",
+      "hostname": "srv-ro-01",
+      "installed_kbs": {
+        "kbs": [
+          "KB5066782",
+          "KB890830"
+        ],
+        "status": "collected"
+      },
+      "internet_facing": false,
+      "ip_address": "192.0.2.10",
+      "mac_address": null,
+      "mac_vendor": null,
+      "managed": true,
+      "network_aliases": [],
+      "operating_system": "Microsoft Windows Server 2022 Standard",
+      "os_build": "10.0.20348",
+      "os_fingerprint_hint": "",
+      "os_guess": null,
+      "os_guess_confidence": null,
+      "os_guess_source": null,
+      "services": [],
+      "ubr": 4294
+    },
+    {
+      "asset_type": "workstation",
+      "classification_evidence": null,
+      "external_id": "wmi:ws-de-02",
+      "fqdn": "",
+      "hostname": "ws-de-02",
+      "installed_kbs": {
+        "kbs": [],
+        "status": "collected"
+      },
+      "internet_facing": false,
+      "ip_address": "192.0.2.20",
+      "mac_address": null,
+      "mac_vendor": null,
+      "managed": true,
+      "network_aliases": [],
+      "operating_system": "Microsoft Windows 11 Pro",
+      "os_build": "10.0.26100",
+      "os_fingerprint_hint": "",
+      "os_guess": null,
+      "os_guess_confidence": null,
+      "os_guess_source": null,
+      "services": [],
+      "ubr": 6899
+    }
+  ],
+  "collector_version": "0.0.0-contract",
+  "configuration_checks": [],
+  "identities": [],
+  "missing_kbs": [],
+  "password_policies": [],
+  "payload_id_hash": null,
+  "payload_type": "full",
+  "scan_metadata": null,
+  "scan_status": null,
+  "schema_version": 8,
+  "service_exposures": [],
+  "software_inventory": [],
+  "tls_probes": [],
+  "vulnerabilities": []
+}

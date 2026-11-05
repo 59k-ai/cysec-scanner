@@ -50,7 +50,7 @@ func canonicalBytes(t *testing.T, p Payload) []byte {
 	return append(b, '\n')
 }
 
-// buildCanonicalEmpty is the empty-but-strict-valid v7 payload: every required
+// buildCanonicalEmpty is the empty-but-strict-valid v8 payload: every required
 // top-level slice present as [] and every additive scalar pointer null
 // (including scan_status: a complete scan). This is
 // exactly what NewEmpty followed by Normalize produces.
@@ -124,6 +124,9 @@ func buildCanonicalFull() Payload {
 			MACAddress: ptr("02:00:5e:10:00:10"), // SET scalar pointer
 			MACVendor:  ptr("generic-vendor"),    // SET scalar pointer
 			// os_guess trio left nil -> null, on the SAME object as the set pointers
+			OSBuild:      ptr("10.0.20348"), // v8: SET
+			UBR:          ptr(int64(4294)),
+			InstalledKbs: &InstalledKbs{Status: InstalledKbsCollected, Kbs: []string{"KB5066782", "KB890830"}},
 		},
 		{
 			ExternalID:        "ip:192.0.2.20",
@@ -136,6 +139,8 @@ func buildCanonicalFull() Payload {
 			OSGuessSource:     ptr("osfp-ttl"),
 			OSGuessConfidence: ptr(0.8675309), // precision + SET
 			// Services / NetworkAliases left nil -> Normalize forces []
+			// v8: os_build and ubr left nil -> null; kbs left nil -> Normalize forces [].
+			InstalledKbs: &InstalledKbs{Status: InstalledKbsUnavailable},
 		},
 	}
 	p.ServiceExposures = []ServiceExposureItem{
@@ -339,6 +344,24 @@ func TestGoldenNullVsEmptyAndPrecision(t *testing.T) {
 		if !strings.Contains(remarshalled, want) {
 			t.Errorf("float64 field did not re-marshal byte-stably as %q", want)
 		}
+	}
+
+	// v8 asset fields: set values, unset null, and kbs [] when the object exists.
+	for _, want := range []string{
+		`"os_build": "10.0.20348"`,
+		`"ubr": 4294`,
+		`"os_build": null`,
+		`"ubr": null`,
+		`"status": "collected"`,
+		`"status": "unavailable"`,
+		`"kbs": []`,
+	} {
+		if !strings.Contains(remarshalled, want) {
+			t.Errorf("v8 asset field did not re-marshal as %q", want)
+		}
+	}
+	if strings.Contains(remarshalled, `"kbs": null`) {
+		t.Error("kbs re-marshalled to null")
 	}
 
 	// Nested classification evidence map + security_flags present (not null).

@@ -62,7 +62,7 @@ func scanEndStatus(t *testing.T, line map[string]json.RawMessage) string {
 }
 
 // readStrictPayload decodes the payload file rejecting unknown fields, so it is
-// a strict-valid v7 document in the Go model's shape.
+// a strict-valid v8 document in the Go model's shape.
 func readStrictPayload(t *testing.T, path string) (payload.Payload, map[string]json.RawMessage) {
 	t.Helper()
 	raw, err := os.ReadFile(path)
@@ -111,7 +111,7 @@ func TestLegacyStdoutUnchanged(t *testing.T) {
 }
 
 // TestDetailedEvents proves --events=detailed frames the stream with scan_start
-// and scan_end(completed), and the payload is v7 with scan_status null.
+// and scan_end(completed), and the payload is v8 with scan_status null.
 func TestDetailedEvents(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "p.json")
 	var stdout, stderr bytes.Buffer

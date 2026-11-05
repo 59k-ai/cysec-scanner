@@ -242,7 +242,7 @@ void TestExporter::jsonInvalidSourceRejected()
     {
         QFile f(src);
         QVERIFY(f.open(QIODevice::WriteOnly));
-        f.write("{\"schema_version\": 7, ");
+        f.write("{\"schema_version\": 8, ");
     }
     const QString out = dir.filePath(QStringLiteral("out.json"));
     Exporter e;
