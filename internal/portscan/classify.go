@@ -185,6 +185,9 @@ type verdict struct {
 	RuleName      string
 	Evidence      map[string]string
 	SecurityFlags []string
+	// OSHint is set only by the port-signature fallback. mergeVerdict writes it to
+	// the asset's os_fingerprint_hint when the asset has no OS information.
+	OSHint string
 }
 
 // hintVerdict is a Rule-0 banner-driven mapping: a coarse product hint parsed from
@@ -219,6 +222,14 @@ func classify(in classifyInput) verdict {
 
 	sig := portSignature(in.OpenPorts)
 	fp := osFingerprint(in)
+	// A host that drops ICMP gives no TTL family, so with no banner cue either the
+	// open ports are the only OS evidence left. SMB or RDP is a strong enough
+	// Windows signal to fingerprint on. A Samba host with no other signal reads as
+	// Windows too, which is the accepted cost of this fallback.
+	if fp == "" && (containsPort(in.OpenPorts, portSMB) || containsPort(in.OpenPorts, portRDP)) {
+		fp = osHintWindows
+		v.OSHint = osHintWindows
+	}
 	vendor := ""
 	if in.OUIVendor != nil {
 		vendor = strings.ToLower(*in.OUIVendor)
@@ -327,6 +338,10 @@ func osFingerprint(in classifyInput) string {
 // fingerprint without re-probing.
 const discoveryOSTTLFamilyKey = "os_ttl_family"
 
+// osHintWindows is the os_fingerprint_hint value set by the port-signature
+// fallback, the same word the discovery stage writes for a Windows TTL family.
+const osHintWindows = "windows"
+
 // matchesVendor reports whether the lowercased OUI vendor contains any of the
 // lowercased substrings in list.
 func matchesVendor(vendor string, list []string) bool {
@@ -396,6 +411,9 @@ func mergeVerdict(a *payload.AssetItem, v verdict) {
 	c.Confidence = v.Confidence
 	c.RuleName = v.RuleName
 	a.AssetType = v.AssetType
+	if v.OSHint != "" && a.OSFingerprintHint == "" && a.OperatingSystem == "" {
+		a.OSFingerprintHint = v.OSHint
+	}
 }
 
 // containsPort reports whether ports contains p.
