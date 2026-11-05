@@ -1,5 +1,5 @@
 {
-  "schema_version": 7,
+  "schema_version": 8,
   "payload_type": "full",
   "collector_version": "engine/0.0.0",
   "assets": [
@@ -61,7 +61,16 @@
       "mac_vendor": "generic-vendor",
       "os_guess": null,
       "os_guess_source": null,
-      "os_guess_confidence": null
+      "os_guess_confidence": null,
+      "os_build": "10.0.20348",
+      "ubr": 4294,
+      "installed_kbs": {
+        "status": "collected",
+        "kbs": [
+          "KB5066782",
+          "KB890830"
+        ]
+      }
     },
     {
       "external_id": "ip:192.0.2.20",
@@ -80,7 +89,13 @@
       "mac_vendor": null,
       "os_guess": "generic-linux",
       "os_guess_source": "osfp-ttl",
-      "os_guess_confidence": 0.8675309
+      "os_guess_confidence": 0.8675309,
+      "os_build": null,
+      "ubr": null,
+      "installed_kbs": {
+        "status": "unavailable",
+        "kbs": []
+      }
     }
   ],
   "identities": [],

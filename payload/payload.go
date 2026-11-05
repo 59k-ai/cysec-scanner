@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package payload is the Go-side hand-mirror of the authoritative wire model at
-// schema v7.
+// schema v8.
 //
 // The authoritative strict reference schema is the single SOURCE OF TRUTH; these
 // structs reproduce its field names, JSON tags and enum string values exactly
@@ -22,16 +22,28 @@
 //     to null together when the match is below the prefer-unknown confidence cut.
 //     v7 adds the top-level scan_status marker (null = complete scan,
 //     "cancelled" = partial results from a cooperatively cancelled scan).
+//     v8 adds three per-asset fields: os_build, ubr and installed_kbs. Each one
+//     marshals to null when unset, and null is the only "no evidence" form.
 package payload
 
 // SchemaVersion is the wire-schema version this mirror targets. It MUST equal
-// the reference-schema version (7); the cloud accepts v5, v6 and v7.
-const SchemaVersion = 7
+// the reference-schema version (8). A v7-shaped body is still a valid input,
+// because every v8 field is nullable.
+const SchemaVersion = 8
 
 // ScanStatusCancelled is the only non-null scan_status value (v7). The scanner
 // stamps it on the partial payload it returns after a cooperative cancel, so a
 // consumer can tell a truncated scan from a complete one from the payload alone.
 const ScanStatusCancelled = "cancelled"
+
+// InstalledKbs.Status values (v8). Kbs may be non-empty only for
+// InstalledKbsCollected. A collected object with no ids means the host has none,
+// which is different from a null object, which means no evidence at all.
+const (
+	InstalledKbsCollected    = "collected"
+	InstalledKbsUnavailable  = "unavailable"
+	InstalledKbsNotAttempted = "not_attempted"
+)
 
 // Payload is the top-level Collector -> cloud envelope.
 type Payload struct {
@@ -135,6 +147,21 @@ type AssetItem struct {
 	OSGuess           *string  `json:"os_guess"`
 	OSGuessSource     *string  `json:"os_guess_source"`
 	OSGuessConfidence *float64 `json:"os_guess_confidence"`
+	// v8 — per-asset OS patch evidence, nullable with no omitempty, because an
+	// absent key and a null are different things to a strict consumer. The open
+	// engine never fills these; they exist so a consumer of this library can.
+	// OSBuild is "major.minor.build"; UBR is the update build revision.
+	OSBuild      *string       `json:"os_build"`
+	UBR          *int64        `json:"ubr"`
+	InstalledKbs *InstalledKbs `json:"installed_kbs"`
+}
+
+// InstalledKbs is the installed-update inventory of an asset with its
+// provenance (v8). Kbs marshals to [] whenever the object exists, never null;
+// Normalize enforces that.
+type InstalledKbs struct {
+	Status string   `json:"status"`
+	Kbs    []string `json:"kbs"`
 }
 
 // IdentityItem is one identity record (reference schema: IdentityItem).
@@ -261,8 +288,8 @@ type TLSProbeItem struct {
 	ProbedAt        string             `json:"probed_at"`
 }
 
-// NewEmpty returns an empty-ish but strict-valid v7 payload: schema_version
-// SchemaVersion (7), the given payload_type, every required slice initialised to
+// NewEmpty returns an empty-ish but strict-valid v8 payload: schema_version
+// SchemaVersion (8), the given payload_type, every required slice initialised to
 // its empty literal (so each marshals to "[]" not "null"), a nil payload_id_hash
 // (JSON null — the Collector runner stamps it) and a nil scan_status (JSON null —
 // a complete scan). This is what the Phase-2 engine emits before
@@ -292,8 +319,8 @@ func NewEmpty(payloadType, collectorVersion string) Payload {
 // asset built from scratch in a later scanning stage (Phase 3+) can carry nil
 // nested slices/maps: AssetItem.Services / AssetItem.NetworkAliases,
 // ClassificationEvidence.Evidence / ClassificationEvidence.SecurityFlags,
-// PasswordPolicyItem.AppliesTo, SoftwareInventoryItem.SourceEvidence and
-// TLSProbeItem.Results all mirror a required, default-empty field in the
+// InstalledKbs.Kbs, PasswordPolicyItem.AppliesTo,
+// SoftwareInventoryItem.SourceEvidence and TLSProbeItem.Results all mirror a required, default-empty field in the
 // reference schema — the strict (unknown-fields-forbidden) schema 400-rejects a
 // null for any of them, which would silently drop a populated asset's evidence.
 // Call this immediately before marshalling the wire payload.
@@ -344,6 +371,9 @@ func (p *Payload) Normalize() {
 			if a.Classification.SecurityFlags == nil {
 				a.Classification.SecurityFlags = []string{}
 			}
+		}
+		if a.InstalledKbs != nil && a.InstalledKbs.Kbs == nil {
+			a.InstalledKbs.Kbs = []string{}
 		}
 	}
 	for i := range p.PasswordPolicies {

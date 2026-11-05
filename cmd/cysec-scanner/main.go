@@ -170,7 +170,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	fs := flag.NewFlagSet("cysec-scanner", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	payloadOut := fs.String("payload-out", "", "path to write the v7 payload JSON (required in scan mode)")
+	payloadOut := fs.String("payload-out", "", "path to write the v8 payload JSON (required in scan mode)")
 	var cidrs cidrList
 	fs.Var(&cidrs, "cidr", "scope CIDR to scan (repeatable); empty means auto-detect the local subnet")
 	timing := fs.String("timing", "polite", "scan timing tier: polite (default)")
