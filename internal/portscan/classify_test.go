@@ -292,3 +292,93 @@ func TestClassifyMergeStrictValid(t *testing.T) {
 	st.AddAsset(*a)
 	assertStrictValid(t, marshalToMap(t, st))
 }
+
+// TestClassifyWindowsPortFallback pins the port-signature fallback: with no TTL or
+// banner OS signal, an open SMB or RDP port reads as Windows. Both ports together
+// reach the Windows workstation rule; either one alone sets the fingerprint and
+// still reads as unknown.
+func TestClassifyWindowsPortFallback(t *testing.T) {
+	cases := []struct {
+		name     string
+		ports    []int
+		wantType string
+		wantConf float64
+		wantRule string
+	}{
+		{"smb and rdp", []int{445, 3389}, "workstation", 0.8, "fp-workstation-windows"},
+		{"smb only", []int{445}, "unknown", 0.0, "port-no-match"},
+		{"rdp only", []int{3389}, "unknown", 0.0, "port-no-match"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			v := classify(classifyInput{OpenPorts: tc.ports})
+			if v.AssetType != tc.wantType || v.Confidence != tc.wantConf || v.RuleName != tc.wantRule {
+				t.Errorf("verdict = %q %v %q, want %q %v %q",
+					v.AssetType, v.Confidence, v.RuleName, tc.wantType, tc.wantConf, tc.wantRule)
+			}
+			if v.OSHint != "windows" {
+				t.Errorf("OSHint = %q, want windows", v.OSHint)
+			}
+			if v.Evidence["fingerprint"] != "windows" {
+				t.Errorf("evidence fingerprint = %q, want windows", v.Evidence["fingerprint"])
+			}
+		})
+	}
+}
+
+// TestClassifyWindowsPortFallbackYieldsToSignals proves the fallback never
+// overrides a real OS signal, and needs SMB or RDP: a Linux host running Samba
+// stays Linux when its TTL or banner says so.
+func TestClassifyWindowsPortFallbackYieldsToSignals(t *testing.T) {
+	cases := []struct {
+		name   string
+		in     classifyInput
+		wantFP string
+	}{
+		{"ttl says linux", classifyInput{OpenPorts: []int{445}, ExistingEvidence: map[string]string{"os_ttl_family": "linux"}}, "linux"},
+		{"banner says linux", classifyInput{OpenPorts: []int{22, 445}, OSCue: "linux"}, "linux"},
+		{"neither smb nor rdp", classifyInput{OpenPorts: []int{135, 8080}}, ""},
+		{"no open ports", classifyInput{OpenPorts: []int{}}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			v := classify(tc.in)
+			if v.OSHint != "" {
+				t.Errorf("OSHint = %q, want empty", v.OSHint)
+			}
+			if v.Evidence["fingerprint"] != tc.wantFP {
+				t.Errorf("evidence fingerprint = %q, want %q", v.Evidence["fingerprint"], tc.wantFP)
+			}
+		})
+	}
+}
+
+// TestMergeVerdictOSHint proves the fallback reaches the wire field, leaves any
+// value already on the asset alone, and does not touch the OS guess: a port
+// signature is not evidence for a graded guess.
+func TestMergeVerdictOSHint(t *testing.T) {
+	cases := []struct {
+		name     string
+		asset    payload.AssetItem
+		wantHint string
+	}{
+		{"empty asset gets the hint", payload.AssetItem{}, "windows"},
+		{"existing hint kept", payload.AssetItem{OSFingerprintHint: "mobile"}, "mobile"},
+		{"inventory os blocks the hint", payload.AssetItem{OperatingSystem: "generic-os"}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := tc.asset
+			mergeVerdict(&a, classify(classifyInput{OpenPorts: []int{445, 3389}}))
+			if a.OSFingerprintHint != tc.wantHint {
+				t.Errorf("OSFingerprintHint = %q, want %q", a.OSFingerprintHint, tc.wantHint)
+			}
+			if a.OSGuess != nil || a.OSGuessSource != nil || a.OSGuessConfidence != nil {
+				t.Errorf("os_guess trio changed: %v %v %v", a.OSGuess, a.OSGuessSource, a.OSGuessConfidence)
+			}
+			if a.Classification.Evidence[discoveryOSTTLFamilyKey] != "" {
+				t.Errorf("TTL family written by a port signature: %q", a.Classification.Evidence[discoveryOSTTLFamilyKey])
+			}
+		})
+	}
+}
