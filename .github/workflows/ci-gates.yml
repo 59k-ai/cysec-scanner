@@ -187,9 +187,12 @@ jobs:
   # ordering. The gate greps every shipped non-test Go source (git ls-files
   # '*.go' minus *_test.go and minus the out-of-module tests/consumer tree) for
   # EVERY listener constructor form — net.Listen(/ListenTCP/ListenUDP/
-  # ListenPacket/ListenUnix/ListenMulticastUDP/FileListener/ListenConfig,
-  # icmp.ListenPacket, http.ListenAndServe, http.Serve(, the named-pipe
-  # listeners ListenPipe and CreateNamedPipe, and the public ipc.Listen( — and
+  # ListenIP/ListenPacket/ListenUnix/ListenMulticastUDP/FileListener/
+  # ListenConfig, icmp.ListenPacket, http.ListenAndServe, the ListenAndServe(TLS)
+  # method and http.Server literals, http.Serve(, the raw listen and bind
+  # wrappers (syscall, x/sys/unix, x/sys/windows), the named-pipe and Hyper-V
+  # listeners ListenPipe, ListenHvsock and CreateNamedPipe, and the public
+  # ipc.Listen( (full list in tests/ci/eng04.sh) — and
   # then SUBTRACTS an EXPLICIT file+construct allowlist of pinned sites
   # (exemption by enumeration, never by dropping a constructor from the
   # pattern):

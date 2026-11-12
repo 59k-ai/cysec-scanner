@@ -5,8 +5,8 @@
 # regression (a listener in the engine, a named-pipe listener outside the
 # pinned sites, the engine linking the ipc package, a pinned site removed, a
 # path that only ends in a pinned path, a pinned site quoted in a comment, a
-# second call in a pinned file, a raw listen wrapper, an aliased import)
-# reddens the gate.
+# second call in a pinned file, a raw listen wrapper, an aliased import, an
+# HTTP server value's ListenAndServe, a raw bind) reddens the gate.
 #
 # Usage: bash tests/ci/ipc_gates_test.sh   (from anywhere inside the repo)
 set -u
@@ -115,6 +115,24 @@ I=$(copy_tree i)
 printf 'package discovery\n\nimport n "net"\n\nvar _ = n.IPv4len\n' > "$I/internal/discovery/zz_negative_control.go"
 index_tree "$I"
 expect_fail I eng04_scan "$I"
+
+# J: an HTTP server value that opens its own listener.
+J=$(copy_tree j)
+printf '\n// srv := &http.Server{Addr: ":8080"}\n// _ = srv.ListenAndServe()\n' >> "$J/scanner/scanner.go"
+index_tree "$J"
+expect_fail J eng04_scan "$J"
+
+# K: the method form alone, on a server built elsewhere.
+K=$(copy_tree k)
+printf '\n// _ = s.ListenAndServeTLS("", "")\n' >> "$K/scanner/scanner.go"
+index_tree "$K"
+expect_fail K eng04_scan "$K"
+
+# L: a raw bind(2), which makes a receiving datagram socket without listen.
+L=$(copy_tree l)
+printf '\n// _ = unix.Bind(fd, sa)\n' >> "$L/scanner/scanner.go"
+index_tree "$L"
+expect_fail L eng04_scan "$L"
 
 if [ "$FAILED" -ne 0 ]; then
 	echo "IPC_GATES_TEST_FAILED"

@@ -10,12 +10,15 @@
 # Test usage: . tests/ci/eng04.sh; eng04_scan "$root"
 
 # Every listener constructor form: inbound TCP/UDP/IP/unix/packet/multicast/
-# HTTP sockets, the raw listen(2) wrappers (syscall, x/sys/unix,
-# x/sys/windows), the named-pipe and Hyper-V socket listeners (go-winio
-# ListenPipe and ListenHvsock, the raw Win32 CreateNamedPipe call) and the
-# public ipc.Listen constructor. The `\(` on net.Listen, ipc.Listen and the
-# raw wrappers keeps the net.Listener type from matching.
-ENG04_PATTERN='net\.Listen\(|net\.ListenTCP|net\.ListenUDP|net\.ListenIP|net\.ListenPacket|net\.ListenUnix|net\.ListenMulticastUDP|net\.FileListener|net\.ListenConfig|icmp\.ListenPacket|http\.ListenAndServe|http\.Serve\(|syscall\.Listen\(|unix\.Listen\(|windows\.Listen\(|ListenPipe|ListenHvsock|CreateNamedPipe|ipc\.Listen\('
+# HTTP sockets, the HTTP server forms that open their own listener (the
+# ListenAndServe(TLS) method on any server value, an http.Server literal),
+# the raw listen(2) and bind(2) wrappers (syscall, x/sys/unix,
+# x/sys/windows; a bound datagram socket receives without listen), the
+# named-pipe and Hyper-V socket listeners (go-winio ListenPipe and
+# ListenHvsock, the raw Win32 CreateNamedPipe call) and the public
+# ipc.Listen constructor. The `\(` on net.Listen, ipc.Listen and the raw
+# wrappers keeps the net.Listener type from matching.
+ENG04_PATTERN='net\.Listen\(|net\.ListenTCP|net\.ListenUDP|net\.ListenIP|net\.ListenPacket|net\.ListenUnix|net\.ListenMulticastUDP|net\.FileListener|net\.ListenConfig|icmp\.ListenPacket|http\.ListenAndServe|\.ListenAndServe(TLS)?\(|http\.Server\{|new\(http\.Server\)|http\.Serve\(|syscall\.Listen\(|unix\.Listen\(|windows\.Listen\(|(syscall|unix|windows)\.Bind\(|ListenPipe|ListenHvsock|CreateNamedPipe|ipc\.Listen\('
 
 # A grep cannot follow an aliased or dot import, so any non-blank alias of a
 # package that has a listener constructor fails the gate outright: such a
