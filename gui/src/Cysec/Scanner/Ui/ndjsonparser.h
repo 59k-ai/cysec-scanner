@@ -7,12 +7,16 @@
 
 #include <QByteArray>
 #include <QByteArrayView>
+#include <QJsonObject>
 #include <QList>
 
 #include <optional>
 
 // NdjsonParser decodes one complete NDJSON line into a ScanEvent. An unknown
 // event kind yields kind == Unknown; a malformed line yields std::nullopt.
+// parseObject applies the same defensive rules to an already decoded JSON
+// object (for example the event carried inside a local IPC progress
+// notification), so every transport shares one decoder.
 //
 // NdjsonLineBuffer splits a byte stream into complete lines. A line longer
 // than kMaxLineBytes is discarded and overflowed() reports it, so a runaway
@@ -24,6 +28,7 @@ class NdjsonParser
 {
 public:
     static std::optional<ScanEvent> parseLine(QByteArrayView line);
+    static std::optional<ScanEvent> parseObject(const QJsonObject &object);
 };
 
 class NdjsonLineBuffer

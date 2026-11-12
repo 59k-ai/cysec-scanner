@@ -121,7 +121,6 @@ void readHost(const QJsonObject &h, HostFact &out)
 
 std::optional<ScanEvent> NdjsonParser::parseLine(QByteArrayView line)
 {
-    using L = QLatin1StringView;
     if (line.isEmpty())
         return std::nullopt;
 
@@ -129,8 +128,12 @@ std::optional<ScanEvent> NdjsonParser::parseLine(QByteArrayView line)
     const QJsonDocument doc = QJsonDocument::fromJson(line.toByteArray(), &err);
     if (err.error != QJsonParseError::NoError || !doc.isObject())
         return std::nullopt;
-    const QJsonObject o = doc.object();
+    return parseObject(doc.object());
+}
 
+std::optional<ScanEvent> NdjsonParser::parseObject(const QJsonObject &o)
+{
+    using L = QLatin1StringView;
     ScanEvent ev;
     ev.kind = kindFromString(str(o, L("kind")));
     ev.seq = integer(o, L("seq"), -1);

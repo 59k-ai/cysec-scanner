@@ -8,6 +8,8 @@
 #include "ndjsonparser.h"
 
 #include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QtTest>
 
 namespace {
@@ -62,6 +64,8 @@ private slots:
     void lineBufferOverflowCompleteLine();
     void lineBufferReset();
     void hostileStringsPreserved();
+    void parseObjectMatchesParseLine_data();
+    void parseObjectMatchesParseLine();
 };
 
 void TstNdjsonParser::legacyFixture()
@@ -304,6 +308,73 @@ void TstNdjsonParser::hostileStringsPreserved()
     QCOMPARE(ev[0].host.macVendor, QStringLiteral("<b>vendor</b>"));
     QCOMPARE(ev[0].host.services.value(0).product, QStringLiteral("<script>alert(1)</script>"));
     QCOMPARE(ev[1].logMessage, QStringLiteral("banner &amp;<b> from 192.0.2.66"));
+}
+
+namespace {
+
+void compareEvents(const ScanEvent &a, const ScanEvent &b)
+{
+    QCOMPARE(a.kind, b.kind);
+    QCOMPARE(a.seq, b.seq);
+    QCOMPARE(a.ts, b.ts);
+    QCOMPARE(a.agent, b.agent);
+    QCOMPARE(a.done, b.done);
+    QCOMPARE(a.total, b.total);
+    QCOMPARE(a.host.ip, b.host.ip);
+    QCOMPARE(a.host.externalId, b.host.externalId);
+    QCOMPARE(a.host.hostname, b.host.hostname);
+    QCOMPARE(a.host.mac, b.host.mac);
+    QCOMPARE(a.host.macVendor, b.host.macVendor);
+    QCOMPARE(a.host.osGuess, b.host.osGuess);
+    QCOMPARE(a.host.osGuessConfidence, b.host.osGuessConfidence);
+    QCOMPARE(a.host.servicesKnown, b.host.servicesKnown);
+    QCOMPARE(a.host.services.size(), b.host.services.size());
+    for (qsizetype i = 0; i < a.host.services.size(); ++i) {
+        QCOMPARE(a.host.services[i].port, b.host.services[i].port);
+        QCOMPARE(a.host.services[i].protocol, b.host.services[i].protocol);
+        QCOMPARE(a.host.services[i].serviceName, b.host.services[i].serviceName);
+        QCOMPARE(a.host.services[i].product, b.host.services[i].product);
+        QCOMPARE(a.host.services[i].version, b.host.services[i].version);
+    }
+    QCOMPARE(a.logLevel, b.logLevel);
+    QCOMPARE(a.logMessage, b.logMessage);
+    QCOMPARE(a.endStatus, b.endStatus);
+    QCOMPARE(a.endError, b.endError);
+    QCOMPARE(a.endAssets, b.endAssets);
+    QCOMPARE(a.scope, b.scope);
+    QCOMPARE(a.stages, b.stages);
+    QCOMPARE(a.hasCapabilities, b.hasCapabilities);
+    QCOMPARE(a.capUnprivilegedIcmp, b.capUnprivilegedIcmp);
+    QCOMPARE(a.capSystemPing, b.capSystemPing);
+    QCOMPARE(a.capArpCache, b.capArpCache);
+}
+
+} // namespace
+
+void TstNdjsonParser::parseObjectMatchesParseLine_data()
+{
+    QTest::addColumn<QByteArray>("line");
+    const char *fixtures[] = {"ndjson-detailed.ndjson", "ndjson-hostile.ndjson",
+                              "ndjson-junk.ndjson"};
+    for (const char *name : fixtures) {
+        const QList<QByteArray> lines = fixtureLines(name);
+        for (qsizetype i = 0; i < lines.size(); ++i) {
+            const QJsonDocument doc = QJsonDocument::fromJson(lines[i]);
+            if (!doc.isObject())
+                continue;
+            QTest::addRow("%s:%lld", name, static_cast<long long>(i)) << lines[i];
+        }
+    }
+}
+
+void TstNdjsonParser::parseObjectMatchesParseLine()
+{
+    QFETCH(QByteArray, line);
+    const auto fromLine = NdjsonParser::parseLine(line);
+    const auto fromObject = NdjsonParser::parseObject(QJsonDocument::fromJson(line).object());
+    QVERIFY(fromLine.has_value());
+    QVERIFY(fromObject.has_value());
+    compareEvents(*fromObject, *fromLine);
 }
 
 // QTEST_MAIN (QGuiApplication) because ctest passes -platform offscreen.
