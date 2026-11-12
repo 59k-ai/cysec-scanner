@@ -62,7 +62,7 @@ _eng04_files() {
 _eng04_hits() {
 	local root=$1 files
 	files=$(_eng04_files "$root") || return 2
-	(cd "$root" && printf '%s\n' "$files" | xargs grep -nE "$ENG04_PATTERN" 2>/dev/null) || true
+	(cd "$root" && printf '%s\n' "$files" | xargs grep -HnE "$ENG04_PATTERN" 2>/dev/null) || true
 }
 
 # _eng04_constructs <hit>: how many listener constructs the content part of
@@ -101,7 +101,7 @@ eng04_scan() {
 		printf '%s' "$bad"
 		return 1
 	fi
-	aliases=$(cd "$root" && printf '%s\n' "$files" | xargs grep -nE '^[[:space:]]*(import[[:space:]]+)?[A-Za-z_.][A-Za-z0-9_]*[[:space:]]+"' 2>/dev/null |
+	aliases=$(cd "$root" && printf '%s\n' "$files" | xargs grep -HnE '^[[:space:]]*(import[[:space:]]+)?[A-Za-z_.][A-Za-z0-9_]*[[:space:]]+"' 2>/dev/null |
 		grep -E "$ENG04_ALIAS_PATTERN" | grep -vE '^[^:]+:[0-9]+:[[:space:]]*import[[:space:]]+"' || true)
 	if [ -n "$aliases" ]; then
 		echo "ENG-04: aliased import of a package with a listener constructor (the gate cannot follow it):"
