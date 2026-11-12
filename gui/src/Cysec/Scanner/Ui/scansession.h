@@ -72,6 +72,11 @@ public:
         EngineFailedToStart,
         EngineExitedNonZero,
         EngineRejectedInput,
+        // Local IPC start errors, see ScanBackend::StartError.
+        ServiceUnavailable,
+        NotAuthorized,
+        ProtocolMismatch,
+        ServerNotTrusted,
     };
     Q_ENUM(Failure)
 
@@ -159,6 +164,7 @@ private:
     void onEvent(const ScanEvent &event);
     void onFinished(ScanBackend::EndStatus status, int exitCode, const QString &payloadPath);
     void onFailedToStart(ScanBackend::StartError error);
+    void onRunAttached(const QString &runId, double startedAtTs);
     void setState(State state);
     void setProgress(int index, const QString &stage, int done, int total);
     void setCapabilities(bool known, bool unprivilegedIcmp, bool systemPing, bool arpCache);
@@ -173,6 +179,10 @@ private:
     QString lastDiagnostic() const;
 
     QElapsedTimer m_elapsed;
+    // Wall-clock start of an attached run (ms since epoch), -1 when the
+    // session started the run itself and m_elapsed is the clock.
+    qint64 m_attachedStartMs = -1;
+    QString m_attachedRunId;
     QTimer *m_tick = nullptr;
     bool m_partial = false;
     bool m_hasPayload = false;

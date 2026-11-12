@@ -3,6 +3,7 @@
 
 #include "scansession.h"
 
+#include <QDateTime>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -74,6 +75,7 @@ void ScanSession::setBackend(ScanBackend *backend)
         connect(m_backend, &ScanBackend::eventReceived, this, &ScanSession::onEvent);
         connect(m_backend, &ScanBackend::finished, this, &ScanSession::onFinished);
         connect(m_backend, &ScanBackend::failedToStart, this, &ScanSession::onFailedToStart);
+        connect(m_backend, &ScanBackend::runAttached, this, &ScanSession::onRunAttached);
         connect(m_backend, &QObject::destroyed, this, [this](QObject *gone) {
             if (gone != m_backend)
                 return;
@@ -388,10 +390,51 @@ void ScanSession::onFailedToStart(ScanBackend::StartError error)
         return;
     m_tick->stop();
     updateElapsed();
-    setFailure(error == ScanBackend::EngineNotFound ? EngineNotFound : EngineFailedToStart, 0,
-               QString());
+    Failure failure = EngineFailedToStart;
+    switch (error) {
+    case ScanBackend::EngineNotFound:
+        failure = EngineNotFound;
+        break;
+    case ScanBackend::EngineFailedToStart:
+        failure = EngineFailedToStart;
+        break;
+    case ScanBackend::ServiceUnavailable:
+        failure = ServiceUnavailable;
+        break;
+    case ScanBackend::NotAuthorized:
+        failure = NotAuthorized;
+        break;
+    case ScanBackend::ProtocolMismatch:
+        failure = ProtocolMismatch;
+        break;
+    case ScanBackend::ServerNotTrusted:
+        failure = ServerNotTrusted;
+        break;
+    }
+    setFailure(failure, 0, QString());
     m_partial = true;
     setState(Failed);
+    updateExportState();
+}
+
+void ScanSession::onRunAttached(const QString &runId, double startedAtTs)
+{
+    // The same run announced again (a reconnect, or the snapshot after a
+    // start) keeps what is already shown; the replayed host events upsert.
+    // Any other run is a new result set, exactly as start() would begin one.
+    const bool sameRun = !runId.isEmpty() && runId == m_attachedRunId;
+    if (!sameRun) {
+        resetResults();
+        setScope({});
+    }
+    m_attachedRunId = runId;
+    m_attachedStartMs = qint64(startedAtTs * 1000.0);
+    if (!m_elapsed.isValid())
+        m_elapsed.start();
+    m_tick->start();
+    updateElapsed();
+    if (m_state != Running && m_state != Stopping)
+        setState(Running);
     updateExportState();
 }
 
@@ -467,8 +510,14 @@ void ScanSession::updateHostsFound()
 
 void ScanSession::updateElapsed()
 {
-    // D-07: elapsed only, no ETA.
-    const int seconds = m_elapsed.isValid() ? int(m_elapsed.elapsed() / 1000) : 0;
+    // D-07: elapsed only, no ETA. An attached run counts from its own start
+    // (clamped at zero against a skewed service clock).
+    int seconds = 0;
+    if (m_attachedStartMs >= 0)
+        seconds = int(qMax<qint64>(0, QDateTime::currentMSecsSinceEpoch() - m_attachedStartMs)
+                      / 1000);
+    else if (m_elapsed.isValid())
+        seconds = int(m_elapsed.elapsed() / 1000);
     if (seconds == m_elapsedSeconds)
         return;
     m_elapsedSeconds = seconds;
@@ -489,6 +538,8 @@ void ScanSession::resetResults()
 {
     m_tick->stop();
     m_elapsed.invalidate();
+    m_attachedStartMs = -1;
+    m_attachedRunId.clear();
     if (m_elapsedSeconds != 0) {
         m_elapsedSeconds = 0;
         emit elapsedSecondsChanged();

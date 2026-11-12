@@ -21,11 +21,14 @@ struct ScanRequest
 
 // ScanBackend is the abstract transport seam between the session and the
 // engine. QML only ever sees this type; it cannot create one, and the
-// concrete transport (a child process today, local IPC later) stays out of
-// every QML-visible API.
+// concrete transport (a child process or local IPC to a service) stays out
+// of every QML-visible API.
 //
 // Contract fixed by plan 13-07; the process transport is implemented in
-// plan 13-09.
+// plan 13-09. The local IPC transport extends it additively: new start
+// errors are appended so existing values keep their numbers, and
+// runAttached reports a run this client did not start (or is reconnecting
+// to), so the session can show it as running.
 class ScanBackend : public QObject
 {
     Q_OBJECT
@@ -36,7 +39,13 @@ public:
     enum EndStatus { Completed, Cancelled, Failed };
     Q_ENUM(EndStatus)
 
-    enum StartError { EngineNotFound, EngineFailedToStart };
+    enum StartError {
+        EngineNotFound, EngineFailedToStart,
+        // Local IPC only: the service is not reachable, refused this
+        // client, speaks another protocol version, or is not the process
+        // the endpoint policy expects.
+        ServiceUnavailable, NotAuthorized, ProtocolMismatch, ServerNotTrusted,
+    };
     Q_ENUM(StartError)
 
     using QObject::QObject;
@@ -53,4 +62,9 @@ signals:
     // payloadPath is empty when the engine wrote no payload.
     void finished(ScanBackend::EndStatus status, int exitCode, const QString &payloadPath);
     void failedToStart(ScanBackend::StartError error);
+    // A run is active that the session should show. startedAtTs is the
+    // run's own start in seconds since the epoch, so elapsed time is right
+    // for a run joined midway. Announcing the same runId again (a
+    // reconnect) means "still the same run", not a new one.
+    void runAttached(const QString &runId, double startedAtTs);
 };
