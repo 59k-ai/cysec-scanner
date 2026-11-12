@@ -4,8 +4,9 @@ name: ci-gates
 # pipeline on failure: NONE of them carries an allow-failure / failure-suppression
 # escape hatch. These gates stand up the keystone invariants — static
 # cross-platform binaries, the go 1.26.0 directive floor, a license-clean module
-# graph, a name-clean public tree, no inbound listening socket and no reachable
-# known vulnerability — BEFORE any external module pins and imports the public
+# graph, a name-clean public tree, no inbound listening socket in the engine, no
+# reachable known vulnerability and the local IPC legs on Windows, macOS and
+# Linux-as-root — BEFORE any external module pins and imports the public
 # API, so a regression reddens rather than ships. Modelled on governance.yml
 # (same triggers, runner, no escape hatch). Every action is pinned by full
 # commit SHA, every setup-go step builds on Go 1.27.x with check-latest, and
@@ -359,3 +360,129 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
         run: govulncheck ./...
+
+  # Gates 10-12 — local IPC legs as hard gates (threat T-12-40).
+  # The ipc package's Windows and root-only tests skip when their precondition
+  # is missing, which would let a job turn green without testing anything. Each
+  # job below therefore (a) sets the require-env variable that turns those skips
+  # into failures, (b) writes the `go test -v` output to a file and checks the
+  # go test exit status before reading it, so no pipe can mask a failure, and
+  # (c) runs tests/ci/check_test_log.sh, which demands a named PASS line for
+  # every sentinel test and fails on any SKIP line. No failure-suppression.
+
+  # Gate 10 — Windows named-pipe leg: pipe ACL, first-instance protection,
+  # remote-client refusal, administrator and restricted-token peers, the
+  # impersonation thread discipline and the end-to-end host over a real pipe.
+  ipc-windows:
+    name: IPC tests on Windows (named pipe, hard gate)
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: bash
+    env:
+      CYSEC_REQUIRE_IPC_WINDOWS: "1"
+      CGO_ENABLED: "0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.x"
+          check-latest: true
+
+      - name: go vet ./ipc/...
+        run: go vet ./ipc/...
+
+      - name: go test ./ipc/... (CYSEC_REQUIRE_IPC_WINDOWS=1)
+        run: |
+          st=0
+          go test ./ipc/... -count=1 -v > ipc-test.log 2>&1 || st=$?
+          cat ipc-test.log
+          test "$st" -eq 0
+
+      - name: Assert Windows sentinels passed and no "--- SKIP" line
+        run: >-
+          bash tests/ci/check_test_log.sh ipc-test.log
+          TestHelloRequiredFirst TestHelloWrongToken TestPipeListen
+          TestPipeFirstInstance TestPipeSDDL TestPipeRejectRemote
+          TestPeerWindowsAdmin TestPeerWindowsRestrictedRefused
+          TestImpersonationThreadDiscipline TestHostEndToEnd
+
+  # Gate 11 — macOS local-socket leg: the explicit macOS validation of AF_UNIX
+  # plus LOCAL_PEERCRED. The unprivileged run proves the path policy, the
+  # same-user and admin-group peers (the runner user is an administrator) and
+  # the end-to-end host; the root-only cases are excluded there by -skip and
+  # then run under sudo with CYSEC_REQUIRE_IPC_ROOT=1, so a peer outside the
+  # admin group (nobody) is proven refused. No SKIP is accepted in either run.
+  ipc-macos:
+    name: IPC tests on macOS (AF_UNIX + LOCAL_PEERCRED, hard gate)
+    runs-on: macos-latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.x"
+          check-latest: true
+
+      - name: go test ./ipc/... (unprivileged, root-only cases excluded)
+        run: |
+          st=0
+          go test ./ipc/... -count=1 -v -skip 'TestPeerNonAdmin|TestUnixPathPolicy/existingRootRoot0750' > ipc-test.log 2>&1 || st=$?
+          cat ipc-test.log
+          test "$st" -eq 0
+
+      - name: Assert unprivileged macOS sentinels passed and no "--- SKIP" line
+        run: >-
+          bash tests/ci/check_test_log.sh ipc-test.log
+          TestListenUnix TestUnixPathPolicy TestPeerSameUser
+          TestPeerAdminGroup TestHostEndToEnd
+
+      - name: go test TestPeerNonAdmin as root (CYSEC_REQUIRE_IPC_ROOT=1)
+        run: |
+          st=0
+          sudo -E env "PATH=$PATH" CYSEC_REQUIRE_IPC_ROOT=1 go test ./ipc/ -run 'TestPeerNonAdmin' -count=1 -v > ipc-root-test.log 2>&1 || st=$?
+          cat ipc-root-test.log
+          test "$st" -eq 0
+
+      - name: Assert the macOS root sentinel passed and no "--- SKIP" line
+        run: bash tests/ci/check_test_log.sh ipc-root-test.log TestPeerNonAdmin
+
+  # Gate 12 — Linux root leg: SO_PEERCRED plus the raw supplementary-group
+  # read, the non-admin refusal and the systemd-style root:root 0750 runtime
+  # directory normalised to the admin group. These cases need root, so they
+  # run under sudo with CYSEC_REQUIRE_IPC_ROOT=1; the unprivileged Linux pass is
+  # the library job's `go test ./...`.
+  ipc-linux-root:
+    name: IPC tests on Linux as root (peer credentials, hard gate)
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.x"
+          check-latest: true
+
+      - name: go test peer and path-policy tests as root (CYSEC_REQUIRE_IPC_ROOT=1)
+        run: |
+          st=0
+          sudo -E env "PATH=$PATH" CYSEC_REQUIRE_IPC_ROOT=1 go test ./ipc/ -run 'TestPeer|TestLinuxPeerGroups|TestUnixPathPolicy|TestListenUnix' -count=1 -v > ipc-root-test.log 2>&1 || st=$?
+          cat ipc-root-test.log
+          test "$st" -eq 0
+
+      - name: Assert Linux root sentinels passed and no "--- SKIP" line
+        run: >-
+          bash tests/ci/check_test_log.sh ipc-root-test.log
+          TestPeerNonAdmin TestLinuxPeerGroups
+          TestUnixPathPolicy/existingRootRoot0750
