@@ -61,6 +61,18 @@ type ServerOptions struct {
 	// stops reading cannot hold a server goroutine forever. Default
 	// DefaultWriteTimeout.
 	WriteTimeout time.Duration
+	// IdleTimeout, when positive, ends an authenticated session that sends no
+	// request for that long, with session.closing. It is re-armed by every
+	// request line, so a client that wants a long-lived session (a GUI
+	// subscribed to events) sends a cheap request such as status.get more
+	// often than this. Zero, the default, keeps sessions open until the
+	// client closes them.
+	IdleTimeout time.Duration
+	// MaxSessionsPerPeer, when positive, caps the authenticated sessions one
+	// principal (token SID on Windows, uid elsewhere) may hold at once, so a
+	// leaking client cannot take every slot from the others. Zero, the
+	// default, applies only MaxSessions.
+	MaxSessionsPerPeer int
 	// Name and Version identify the server in the hello result.
 	Name, Version string
 	// Logger receives audit and failure lines. Default slog.Default().
@@ -82,6 +94,7 @@ type Server struct {
 	handlers  map[string]HandlerFunc
 	sessions  map[*Session]struct{}
 	refusing  map[*Session]struct{}
+	perPeer   map[string]int
 	listeners map[net.Listener]struct{}
 	shutting  bool
 	wg        sync.WaitGroup
@@ -116,6 +129,7 @@ func NewServer(o ServerOptions) (*Server, error) {
 		handlers:  make(map[string]HandlerFunc),
 		sessions:  make(map[*Session]struct{}),
 		refusing:  make(map[*Session]struct{}),
+		perPeer:   make(map[string]int),
 		listeners: make(map[net.Listener]struct{}),
 	}, nil
 }
@@ -284,6 +298,44 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// peerKey names the principal a per-peer session cap counts against.
+func peerKey(p Peer) string {
+	if p.SID != "" {
+		return "sid:" + p.SID
+	}
+	return fmt.Sprintf("uid:%d", p.UID)
+}
+
+// claimPeerSlot counts an authenticated session against its principal, or
+// reports false when MaxSessionsPerPeer is reached.
+func (s *Server) claimPeerSlot(p Peer) bool {
+	if s.o.MaxSessionsPerPeer <= 0 {
+		return true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := peerKey(p)
+	if s.perPeer[key] >= s.o.MaxSessionsPerPeer {
+		return false
+	}
+	s.perPeer[key]++
+	return true
+}
+
+func (s *Server) releasePeerSlot(p Peer) {
+	if s.o.MaxSessionsPerPeer <= 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := peerKey(p)
+	if s.perPeer[key] <= 1 {
+		delete(s.perPeer, key)
+		return
+	}
+	s.perPeer[key]--
 }
 
 // Session is one client connection.
@@ -460,6 +512,13 @@ func (ss *Session) serve() {
 		return
 	}
 
+	if !ss.srv.claimPeerSlot(peer) {
+		ss.srv.log.Warn("ipc.session_refused", append([]any{"reason", "peer_session_limit"}, peer.LogAttrs()...)...)
+		ss.Close(CodeShuttingDown, "session limit")
+		return
+	}
+	defer ss.srv.releasePeerSlot(peer)
+
 	_ = ss.conn.SetReadDeadline(time.Time{})
 	ss.peerMu.Lock()
 	ss.peer = peer
@@ -475,7 +534,15 @@ func (ss *Session) serve() {
 	defer ss.srv.log.Info("ipc.session_closed", peer.LogAttrs()...)
 
 	for {
+		if o.IdleTimeout > 0 {
+			_ = ss.conn.SetReadDeadline(o.Now().Add(o.IdleTimeout))
+		}
 		line, err := lr.ReadLine(MaxRequestLine)
+		if o.IdleTimeout > 0 && errors.Is(err, os.ErrDeadlineExceeded) {
+			ss.srv.log.Info("ipc.session_idle", peer.LogAttrs()...)
+			ss.Close(CodeShuttingDown, "idle timeout")
+			return
+		}
 		if errors.Is(err, ErrLineTooLong) {
 			if ss.reply(nil, nil, &Error{Code: CodeInvalidRequest, Message: "request too large"}) != nil {
 				return

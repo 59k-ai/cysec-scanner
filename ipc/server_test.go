@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -672,5 +673,78 @@ func TestRefusalNoticeHasAShortDeadline(t *testing.T) {
 	buf := make([]byte, 1)
 	if _, err := c.Read(buf); !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrClosedPipe) {
 		t.Fatalf("a refused connection was still open after the refusal deadline: %v", err)
+	}
+}
+
+func TestIdleTimeout(t *testing.T) {
+	h := newHarness(t, func(o *ServerOptions) { o.IdleTimeout = 150 * time.Millisecond })
+	r := newRaw(t, h.l.Dial(t))
+	r.hello()
+	// Requests inside the window keep the session.
+	for i := range 3 {
+		time.Sleep(80 * time.Millisecond)
+		r.send(fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"status.get","params":{}}`, 10+i))
+		if m := r.recv(); m.Error != nil {
+			t.Fatalf("request %d inside the idle window: %+v", i, m.Error)
+		}
+	}
+	// Silence past it ends the session with a notice.
+	m := r.recv()
+	var p ClosingParams
+	if m.Method != NotifySessionClosing || json.Unmarshal(m.Params, &p) != nil || p.Reason != "idle timeout" {
+		t.Fatalf("want an idle session.closing, got %+v", m)
+	}
+	r.expectEOF()
+}
+
+func TestNoIdleTimeoutByDefault(t *testing.T) {
+	h := newHarness(t, nil)
+	r := newRaw(t, h.l.Dial(t))
+	r.hello()
+	time.Sleep(200 * time.Millisecond)
+	r.send(`{"jsonrpc":"2.0","id":2,"method":"status.get","params":{}}`)
+	if m := r.recv(); m.Error != nil {
+		t.Fatalf("an idle session was dropped by default: %+v", m.Error)
+	}
+}
+
+func TestMaxSessionsPerPeer(t *testing.T) {
+	var uid atomic.Int32
+	uid.Store(501)
+	h := newHarness(t, func(o *ServerOptions) {
+		o.MaxSessionsPerPeer = 2
+		o.Identify = func(net.Conn) (Peer, error) { return Peer{UID: int(uid.Load()), GID: 20, PID: 1}, nil }
+	})
+	a := newRaw(t, h.l.Dial(t))
+	a.hello()
+	b := newRaw(t, h.l.Dial(t))
+	b.hello()
+
+	c := newRaw(t, h.l.Dial(t))
+	c.send(helloLine(1, ProtocolVersion, goodToken))
+	if m := c.recv(); m.Method != NotifySessionClosing {
+		t.Fatalf("a third session of one peer: %+v", m)
+	}
+	c.expectEOF()
+
+	// Another principal still gets in.
+	uid.Store(502)
+	d := newRaw(t, h.l.Dial(t))
+	d.hello()
+
+	// A closed session frees its slot.
+	uid.Store(501)
+	_ = a.conn.Close()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		e := newRaw(t, h.l.Dial(t))
+		e.send(helloLine(1, ProtocolVersion, goodToken))
+		if m := e.recv(); m.Error == nil && m.Method == "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("a closed session never freed its peer slot")
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
