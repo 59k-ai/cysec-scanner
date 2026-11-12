@@ -378,9 +378,17 @@ void TstIpcE2e::reconnectAfterHostRestart()
     QSignalSpy replied(b->channel(), &IpcChannel::replied);
     const qint64 id = b->channel()->call(QStringLiteral("status.get"), QJsonObject());
     QVERIFY(id > 0);
-    QTRY_VERIFY_WITH_TIMEOUT(!replied.isEmpty(), 5000);
-    QCOMPARE(replied.last().at(0).toLongLong(), id);
-    QCOMPARE(replied.last().at(1).toJsonObject().value(QLatin1StringView("state")).toString(),
+    // The backend re-subscribes on its own after the reconnect, so its reply
+    // can arrive on either side of ours; match ours by id.
+    const auto replyIndex = [&replied, id] {
+        for (qsizetype i = 0; i < replied.size(); ++i) {
+            if (replied.at(i).at(0).toLongLong() == id)
+                return i;
+        }
+        return qsizetype(-1);
+    };
+    QTRY_VERIFY_WITH_TIMEOUT(replyIndex() >= 0, 5000);
+    QCOMPARE(replied.at(replyIndex()).at(1).toJsonObject().value(QLatin1StringView("state")).toString(),
              QStringLiteral("idle"));
 
     // The subscription is back too: a run started now is observed to the end.
