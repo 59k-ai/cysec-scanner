@@ -69,6 +69,26 @@ func sameUserSDDL(t *testing.T) string {
 	return SameUserPipeSDDL(sid)
 }
 
+// pipeInstanceRights is SYNCHRONIZE | FILE_CREATE_PIPE_INSTANCE.
+const pipeInstanceRights = 0x00100004
+
+// adminTestSDDL is AdminPipeSDDL plus one ACE that lets the test process
+// user create further server instances, and nothing else. A real host runs
+// as LocalSystem, whose GA ACE lets go-winio open the next instance after
+// each accept. The test host runs as an elevated administrator instead, and
+// the BA ACE withholds FILE_CREATE_PIPE_INSTANCE on purpose, so without
+// this ACE no connectable instance would ever exist and every dial would
+// wait on a busy pipe. The extra ACE grants no data right, so a client is
+// still admitted by the BA ACE alone.
+func adminTestSDDL(t *testing.T) string {
+	t.Helper()
+	sid, err := CurrentUserSID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return AdminPipeSDDL + "(A;;0x00100004;;;" + sid + ")"
+}
+
 // serverPeer accepts one connection, reads the client's first line (the
 // impersonation context is that of the last message read) and identifies it.
 func serverPeer(t *testing.T, l Listener) (Peer, error) {
@@ -170,13 +190,18 @@ func TestPipeFirstInstance(t *testing.T) {
 // TestPipeSDDL reads the DACL back from the kernel. The creator's generic
 // rights are mapped to specific ones when the pipe is created (GA becomes
 // FILE_ALL_ACCESS), so the ACEs are compared rather than the SDDL text.
-// Only the first instance is created with this DACL by design: BA lacks
+// The first three ACEs are exactly AdminPipeSDDL; the fourth is the test
+// host's instance-creation ACE (see adminTestSDDL). BA lacks
 // FILE_CREATE_PIPE_INSTANCE, so an administrator cannot add an instance.
 func TestPipeSDDL(t *testing.T) {
 	const fileAllAccess = 0x001f01ff
 	requireElevated(t)
+	self, err := CurrentUserSID()
+	if err != nil {
+		t.Fatal(err)
+	}
 	name := pipeName(t)
-	l := listenPipe(t, name, AdminPipeSDDL)
+	l := listenPipe(t, name, adminTestSDDL(t))
 	go func() { _, _ = serverPeer(t, l) }()
 	c := dialHello(t, name)
 	h := windows.Handle(c.(interface{ Fd() uintptr }).Fd())
@@ -201,6 +226,7 @@ func TestPipeSDDL(t *testing.T) {
 		{windows.ACCESS_DENIED_ACE_TYPE, fileAllAccess, "S-1-5-2"},
 		{windows.ACCESS_ALLOWED_ACE_TYPE, fileAllAccess, "S-1-5-18"},
 		{windows.ACCESS_ALLOWED_ACE_TYPE, 0x0012019b, "S-1-5-32-544"},
+		{windows.ACCESS_ALLOWED_ACE_TYPE, pipeInstanceRights, self},
 	}
 	if int(dacl.AceCount) != len(want) {
 		t.Fatalf("%d ACEs, want %d (%s)", dacl.AceCount, len(want), sd.String())
@@ -248,7 +274,7 @@ func TestPipeRejectRemote(t *testing.T) {
 func TestPeerWindowsAdmin(t *testing.T) {
 	requireElevated(t)
 	name := pipeName(t)
-	l := listenPipe(t, name, AdminPipeSDDL)
+	l := listenPipe(t, name, adminTestSDDL(t))
 	ch := make(chan struct{})
 	var p Peer
 	var err error
