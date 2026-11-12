@@ -3,7 +3,9 @@
 # gate. CI runs the same functions from tests/ci/eng04.sh, so this script
 # proves the exact text CI runs: a clean tree passes, and each injected
 # regression (a listener in the engine, a named-pipe listener outside the
-# pinned sites, the engine linking the ipc package, a pinned site removed)
+# pinned sites, the engine linking the ipc package, a pinned site removed, a
+# path that only ends in a pinned path, a pinned site quoted in a comment, a
+# second call in a pinned file, a raw listen wrapper, an aliased import)
 # reddens the gate.
 #
 # Usage: bash tests/ci/ipc_gates_test.sh   (from anywhere inside the repo)
@@ -82,6 +84,37 @@ D=$(copy_tree d)
 rm -f "$D/ipc/listen_windows.go"
 index_tree "$D"
 expect_fail D eng04_targets_exist "$D"
+
+# E: a file whose path ends in a pinned path is not the pinned file.
+E=$(copy_tree e)
+mkdir -p "$E/tools/x/ipc"
+printf 'package ipc\n\n// net.ListenUnix("unix", nil)\n' > "$E/tools/x/ipc/listen_unix.go"
+index_tree "$E"
+expect_fail E eng04_scan "$E"
+
+# F: a line that quotes a pinned site in a trailing comment is not exempt.
+F=$(copy_tree f)
+printf '\n// net.Listen("tcp", ":0") // ipc/listen_unix.go:1: net.ListenUnix("unix"\n' >> "$F/scanner/scanner.go"
+index_tree "$F"
+expect_fail F eng04_scan "$F"
+
+# G: a pinned file carrying a second listener call.
+G=$(copy_tree g)
+printf '\n// net.ListenUnix("unix", nil)\n' >> "$G/ipc/listen_unix.go"
+index_tree "$G"
+expect_fail G eng04_scan "$G"
+
+# H: a raw listen(2) wrapper.
+H=$(copy_tree h)
+printf '\n// syscall.Listen(fd, 1)\n' >> "$H/scanner/scanner.go"
+index_tree "$H"
+expect_fail H eng04_scan "$H"
+
+# I: an aliased net import, under which a constructor call is invisible.
+I=$(copy_tree i)
+printf 'package discovery\n\nimport n "net"\n\nvar _ = n.IPv4len\n' > "$I/internal/discovery/zz_negative_control.go"
+index_tree "$I"
+expect_fail I eng04_scan "$I"
 
 if [ "$FAILED" -ne 0 ]; then
 	echo "IPC_GATES_TEST_FAILED"

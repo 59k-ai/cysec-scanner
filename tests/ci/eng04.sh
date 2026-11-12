@@ -9,13 +9,24 @@
 # CI usage:   bash tests/ci/eng04.sh <function> <repo-root>
 # Test usage: . tests/ci/eng04.sh; eng04_scan "$root"
 
-# Every listener constructor form: inbound TCP/UDP/unix/packet/multicast/HTTP
-# sockets, the named-pipe listeners (go-winio ListenPipe, the raw Win32
-# CreateNamedPipe call) and the public ipc.Listen constructor. The `\(` on
-# net.Listen and ipc.Listen keeps the net.Listener type from matching.
-ENG04_PATTERN='net\.Listen\(|net\.ListenTCP|net\.ListenUDP|net\.ListenPacket|net\.ListenUnix|net\.ListenMulticastUDP|net\.FileListener|net\.ListenConfig|icmp\.ListenPacket|http\.ListenAndServe|http\.Serve\(|ListenPipe|CreateNamedPipe|ipc\.Listen\('
+# Every listener constructor form: inbound TCP/UDP/IP/unix/packet/multicast/
+# HTTP sockets, the raw listen(2) wrappers (syscall, x/sys/unix,
+# x/sys/windows), the named-pipe and Hyper-V socket listeners (go-winio
+# ListenPipe and ListenHvsock, the raw Win32 CreateNamedPipe call) and the
+# public ipc.Listen constructor. The `\(` on net.Listen, ipc.Listen and the
+# raw wrappers keeps the net.Listener type from matching.
+ENG04_PATTERN='net\.Listen\(|net\.ListenTCP|net\.ListenUDP|net\.ListenIP|net\.ListenPacket|net\.ListenUnix|net\.ListenMulticastUDP|net\.FileListener|net\.ListenConfig|icmp\.ListenPacket|http\.ListenAndServe|http\.Serve\(|syscall\.Listen\(|unix\.Listen\(|windows\.Listen\(|ListenPipe|ListenHvsock|CreateNamedPipe|ipc\.Listen\('
 
-# The pinned sites, one file+construct pair each:
+# A grep cannot follow an aliased or dot import, so any non-blank alias of a
+# package that has a listener constructor fails the gate outright: such a
+# file would call the constructor under a name the pattern above never sees.
+ENG04_ALIAS_PATTERN='^[^:]+:[0-9]+:[[:space:]]*(import[[:space:]]+)?([A-Za-z][A-Za-z0-9_]*|_[A-Za-z0-9_]+|\.)[[:space:]]+"(net|net/http|syscall|golang\.org/x/sys/unix|golang\.org/x/sys/windows|golang\.org/x/net/icmp|github\.com/Microsoft/go-winio|github\.com/59k-ai/cysec-scanner/ipc)"'
+
+# The pinned sites, one file+construct pair each. Every entry is anchored at
+# the start of the path:line:content hit, so a file whose path merely ends in
+# a pinned path, or a line that quotes a pinned site in a comment, is not
+# exempt. Each entry admits exactly one hit, and that hit's line may carry
+# no other listener construct, so a pinned file cannot hide a second call.
 #   - icmp.ListenPacket in internal/capabilities/capabilities.go: the
 #     unprivileged ICMP capability probe, opened then closed, never a server.
 #   - net.ListenUDP in internal/netutil/mdns.go: the mDNS reverse-query client
@@ -28,32 +39,70 @@ ENG04_PATTERN='net\.Listen\(|net\.ListenTCP|net\.ListenUDP|net\.ListenPacket|net
 #   - ipc.Listen( in tools/ipc-refhost/main.go: the reference host used by the
 #     client tests, the only caller of the public constructor in this repo.
 ENG04_ALLOWLIST=(
-	'internal/capabilities/capabilities\.go:[0-9]+:.*icmp\.ListenPacket'
-	'internal/netutil/mdns\.go:[0-9]+:.*net\.ListenUDP'
-	'ipc/listen_unix\.go:[0-9]+:.*net\.ListenUnix\("unix"'
-	'ipc/listen_windows\.go:[0-9]+:.*winio\.ListenPipe'
-	'tools/ipc-refhost/main\.go:[0-9]+:.*ipc\.Listen\('
+	'^internal/capabilities/capabilities\.go:[0-9]+:.*icmp\.ListenPacket'
+	'^internal/netutil/mdns\.go:[0-9]+:.*net\.ListenUDP'
+	'^ipc/listen_unix\.go:[0-9]+:.*net\.ListenUnix\("unix"'
+	'^ipc/listen_windows\.go:[0-9]+:.*winio\.ListenPipe'
+	'^tools/ipc-refhost/main\.go:[0-9]+:.*ipc\.Listen\('
 )
 
 ENG04_IPC_PKG='github.com/59k-ai/cysec-scanner/ipc'
 ENG04_WINIO_MOD='github.com/Microsoft/go-winio'
 
-_eng04_hits() {
+_eng04_files() {
 	local root=$1 files
 	files=$(cd "$root" && git ls-files '*.go' -- ':!*_test.go' ':!tests/consumer') || return 2
 	[ -n "$files" ] || { echo "ENG-04: no Go sources found under $root; scan would be vacuous" >&2; return 2; }
+	printf '%s\n' "$files"
+}
+
+_eng04_hits() {
+	local root=$1 files
+	files=$(_eng04_files "$root") || return 2
 	(cd "$root" && printf '%s\n' "$files" | xargs grep -nE "$ENG04_PATTERN" 2>/dev/null) || true
 }
 
-# eng04_scan <root>: no listener constructor outside the pinned sites.
+# _eng04_constructs <hit>: how many listener constructs the content part of
+# one path:line:content hit carries.
+_eng04_constructs() {
+	local content=${1#*:}
+	content=${content#*:}
+	grep -oE "$ENG04_PATTERN" <<<"$content" | wc -l | tr -d ' '
+}
+
+# eng04_scan <root>: no listener constructor outside the pinned sites, each
+# pinned site exactly once, and no aliased import that could hide one.
 eng04_scan() {
-	local root=$1 hits filtered allow
+	local root=$1 files hits hit i matched bad="" aliases
+	files=$(_eng04_files "$root") || return 1
 	hits=$(_eng04_hits "$root") || return 1
-	allow=$(IFS='|'; printf '%s' "${ENG04_ALLOWLIST[*]}")
-	filtered=$(printf '%s\n' "$hits" | grep -vE "$allow" | grep -vE '^$' || true)
-	if [ -n "$filtered" ]; then
-		echo "ENG-04: listener constructor outside the pinned-site allowlist:"
-		printf '%s\n' "$filtered"
+	local -a seen=()
+	for i in "${!ENG04_ALLOWLIST[@]}"; do seen[i]=0; done
+	while IFS= read -r hit; do
+		[ -n "$hit" ] || continue
+		matched=-1
+		for i in "${!ENG04_ALLOWLIST[@]}"; do
+			if [[ $hit =~ ${ENG04_ALLOWLIST[i]} ]]; then
+				matched=$i
+				break
+			fi
+		done
+		if [ "$matched" -ge 0 ] && [ "${seen[matched]}" -eq 0 ] && [ "$(_eng04_constructs "$hit")" -eq 1 ]; then
+			seen[matched]=1
+			continue
+		fi
+		bad+="$hit"$'\n'
+	done <<<"$hits"
+	if [ -n "$bad" ]; then
+		echo "ENG-04: listener constructor outside the pinned-site allowlist (or a pinned site hit twice):"
+		printf '%s' "$bad"
+		return 1
+	fi
+	aliases=$(cd "$root" && printf '%s\n' "$files" | xargs grep -nE '^[[:space:]]*(import[[:space:]]+)?[A-Za-z_.][A-Za-z0-9_]*[[:space:]]+"' 2>/dev/null |
+		grep -E "$ENG04_ALIAS_PATTERN" | grep -vE '^[^:]+:[0-9]+:[[:space:]]*import[[:space:]]+"' || true)
+	if [ -n "$aliases" ]; then
+		echo "ENG-04: aliased import of a package with a listener constructor (the gate cannot follow it):"
+		printf '%s\n' "$aliases"
 		return 1
 	fi
 	echo "NO_INBOUND_SOCKET"
