@@ -395,8 +395,16 @@ void IpcScanBackend::sendStart()
         params.insert(QStringLiteral("probe_fragile"), m_request.probeFragile);
     }
     m_startId = m_channel->call(QStringLiteral("run.start"), params);
-    if (m_startId == -1)
-        failStart(ServiceUnavailable);
+    if (m_startId == -1) {
+        // Ready but refused: the request is over the host's line limit (a
+        // very long scope list). Waiting for the service will not help.
+        if (m_channel->state() == IpcChannel::Ready) {
+            addDiagnostic(QStringLiteral("ipc: run.start request is too large to send"));
+            failStart(EngineFailedToStart);
+        } else {
+            failStart(ServiceUnavailable);
+        }
+    }
 }
 
 void IpcScanBackend::sendCancel()

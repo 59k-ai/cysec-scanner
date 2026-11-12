@@ -61,7 +61,8 @@ public:
     Failure lastFailure() const;
 
     // Sends one request. Returns its id, or -1 (and sends nothing) when the
-    // channel is not Ready.
+    // channel is not Ready, the write fails, or the serialized request is
+    // over the host's 64 KiB request line limit.
     qint64 call(const QString &method, const QJsonObject &params);
 
     QJsonObject helloResult() const;

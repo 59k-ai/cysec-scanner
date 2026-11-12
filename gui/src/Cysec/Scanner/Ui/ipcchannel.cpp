@@ -27,6 +27,9 @@ constexpr int kHelloTimeoutMs = 10000;
 constexpr int kErrUnauthenticated = -32001;
 constexpr int kErrUnsupportedProtocol = -32005;
 constexpr int kErrShuttingDown = -32011;
+// The host reads at most this many bytes per request line after the hello
+// (wire contract v1), not counting the newline.
+constexpr qsizetype kMaxRequestLineBytes = 64 * 1024;
 
 // JSON numbers are doubles; an id or code is accepted only when it is an
 // exact integer inside the range a double represents without loss.
@@ -124,6 +127,10 @@ qint64 IpcChannel::call(const QString &method, const QJsonObject &params)
                               {QStringLiteral("id"), id},
                               {QStringLiteral("method"), method},
                               {QStringLiteral("params"), params}};
+    // The host refuses a request line over its limit with an id-null error
+    // that names no call; refuse it here instead, before anything is sent.
+    if (QJsonDocument(message).toJson(QJsonDocument::Compact).size() > kMaxRequestLineBytes)
+        return -1;
     if (!writeMessage(message))
         return -1;
     m_pending.insert(id);
@@ -273,8 +280,16 @@ bool IpcChannel::handleLine(const QByteArray &line)
             handleHelloAnswer(o);
             return gen == m_generation;
         }
-        // No call of ours is attributable to it, so none fails; the session
-        // stays up.
+        // The host answers request lines in order, and this client sends
+        // nothing but requests: with a call in flight, one of ours caused
+        // this error and its own answer will never come. Which one is not
+        // knowable, so end the session; teardown fails every pending call
+        // and the reconnect re-subscribes. With nothing in flight it is
+        // unattributable noise and the session stays up.
+        if (!m_pending.isEmpty()) {
+            fail(ProtocolError, Retry::Yes);
+            return false;
+        }
         return true;
     }
 

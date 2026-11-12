@@ -152,6 +152,9 @@ private slots:
     void windowsConnectorSourceRules();
     void backendResyncsAfterBufferOverflow();
     void nullIdErrorKeepsTheSession();
+    void nullIdErrorFailsPendingCalls();
+    void oversizeCallIsRefused();
+    void backendOversizeStartFails();
     void nullIdHelloRefusalIsNotAuthorized();
 
 private:
@@ -675,8 +678,8 @@ void TstIpcClient::backendResyncsAfterBufferOverflow()
 }
 
 // The server answers a line it cannot parse or that is too large with an
-// id-null error. That is legal JSON-RPC and fails no call of ours: the
-// session stays up and later calls still correlate.
+// id-null error. With no call in flight nothing of ours is attributable to
+// it: the session stays up and later calls still correlate.
 void TstIpcClient::nullIdErrorKeepsTheSession()
 {
     IpcChannel channel(endpoint());
@@ -687,10 +690,17 @@ void TstIpcClient::nullIdErrorKeepsTheSession()
     Peer *p = handshake(channel, 0);
     QVERIFY(p);
 
-    const qint64 id = channel.call(QStringLiteral("status.get"), {});
-    QVERIFY(id > 0);
+    QSignalSpy notes(&channel, &IpcChannel::notification);
     ScriptedServer::sendRaw(
         p, "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32700,\"message\":\"parse error\"}}\n");
+    // Lines are handled in order: once this notification is in, the error
+    // before it has been handled with nothing in flight.
+    ScriptedServer::send(p, notificationObject(QStringLiteral("x.ping"), {}));
+    QTRY_COMPARE_WITH_TIMEOUT(notes.count(), 1, kWait);
+    QCOMPARE(channel.state(), IpcChannel::Ready);
+    const qint64 id = channel.call(QStringLiteral("status.get"), {});
+    QVERIFY(id > 0);
+    QTRY_COMPARE_WITH_TIMEOUT(p->lines.size(), qsizetype(2), kWait);
     ScriptedServer::send(p, response(id, QJsonObject{{"state", "idle"}}));
     QTRY_COMPARE_WITH_TIMEOUT(replies.count(), 1, kWait);
     QCOMPARE(replies.at(0).at(0).toLongLong(), id);
@@ -698,6 +708,77 @@ void TstIpcClient::nullIdErrorKeepsTheSession()
     QCOMPARE(failures.count(), 0);
     QCOMPARE(channel.state(), IpcChannel::Ready);
     QCOMPARE(m_server->peerCount(), qsizetype(1));
+}
+
+// With a call in flight, an id-null error answers one of ours (the host
+// answers lines in order), so that call would never get its own answer. The
+// channel fails what is pending and reconnects rather than leave it hanging.
+void TstIpcClient::nullIdErrorFailsPendingCalls()
+{
+    IpcChannel channel(endpoint());
+    channel.setBackoff(20, 80);
+    QSignalSpy failures(&channel, &IpcChannel::failure);
+    QSignalSpy errors(&channel, &IpcChannel::callFailed);
+    channel.open();
+    Peer *p = handshake(channel, 0);
+    QVERIFY(p);
+
+    const qint64 id = channel.call(QStringLiteral("run.start"), {});
+    QVERIFY(id > 0);
+    QTRY_COMPARE_WITH_TIMEOUT(p->lines.size(), qsizetype(2), kWait);
+    ScriptedServer::sendRaw(
+        p, "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32600,\"message\":\"request too large\"}}\n");
+    QTRY_COMPARE_WITH_TIMEOUT(errors.count(), 1, kWait);
+    QCOMPARE(errors.at(0).at(0).toLongLong(), id);
+    QTRY_COMPARE_WITH_TIMEOUT(failures.count(), 1, kWait);
+    QCOMPARE(failures.at(0).at(0).value<IpcChannel::Failure>(), IpcChannel::ProtocolError);
+    // It reconnects (a fresh hello on a second connection).
+    QTRY_COMPARE_WITH_TIMEOUT(m_server->peerCount(), qsizetype(2), kWait);
+}
+
+// A request over the host's 64 KiB line limit is refused before anything is
+// written, so the host never has to answer it with an id-null error.
+void TstIpcClient::oversizeCallIsRefused()
+{
+    IpcChannel channel(endpoint());
+    channel.open();
+    Peer *p = handshake(channel, 0);
+    QVERIFY(p);
+
+    QJsonArray cidrs;
+    for (int i = 0; i < 6000; ++i)
+        cidrs.append(QStringLiteral("10.%1.%2.0/24").arg(i / 256).arg(i % 256));
+    const qint64 bytesBefore = p->bytesRead;
+    QCOMPARE(channel.call(QStringLiteral("run.start"), QJsonObject{{"cidrs", cidrs}}), qint64(-1));
+    QCOMPARE(channel.state(), IpcChannel::Ready);
+    const qint64 small = channel.call(QStringLiteral("status.get"), {});
+    QVERIFY(small > 0);
+    QTRY_COMPARE_WITH_TIMEOUT(p->lines.size(), qsizetype(2), kWait);
+    QCOMPARE(lineObject(p, 1).value("method").toString(), QStringLiteral("status.get"));
+    QVERIFY(p->bytesRead - bytesBefore < 1024);
+}
+
+// A forwarded scope too large for one request line fails the start at once
+// instead of leaving run.start pending forever.
+void TstIpcClient::backendOversizeStartFails()
+{
+    IpcScanBackend backend(endpoint());
+    QSignalSpy failed(&backend, &ScanBackend::failedToStart);
+    ScanRequest request;
+    for (int i = 0; i < 6000; ++i)
+        request.cidrs.append(QStringLiteral("10.%1.%2.0/24").arg(i / 256).arg(i % 256));
+    backend.start(request);
+    Peer *p = handshake(*backend.channel(), 0);
+    QVERIFY(p);
+    QTRY_VERIFY_WITH_TIMEOUT(p->lines.size() >= 2, kWait);
+    const QJsonObject subscribe = lineObject(p, 1);
+    QCOMPARE(subscribe.value("method").toString(), QStringLiteral("events.subscribe"));
+    ScriptedServer::send(p, response(subscribe.value("id").toInteger(),
+                                     QJsonObject{{"run", QJsonValue::Null}, {"last_seq", -1}}));
+    QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, kWait);
+    QCOMPARE(failed.at(0).at(0).value<ScanBackend::StartError>(), ScanBackend::EngineFailedToStart);
+    QVERIFY(!backend.isRunning());
+    QCOMPARE(p->lines.size(), qsizetype(2));
 }
 
 // A hello the server refuses before reading its id (too large, too late) is
