@@ -24,6 +24,11 @@ const (
 	DefaultWriteTimeout = 10 * time.Second
 )
 
+// refusalWriteTimeout bounds the session.closing notice to a connection over
+// the session cap. It is short and fixed: the notice is a courtesy, and a
+// connect flood must not hold one goroutine per connection for WriteTimeout.
+const refusalWriteTimeout = 250 * time.Millisecond
+
 // ErrServerClosed is returned by Serve after Shutdown.
 var ErrServerClosed = errors.New("ipc: server closed")
 
@@ -76,6 +81,7 @@ type Server struct {
 	mu        sync.Mutex
 	handlers  map[string]HandlerFunc
 	sessions  map[*Session]struct{}
+	refusing  map[*Session]struct{}
 	listeners map[net.Listener]struct{}
 	shutting  bool
 	wg        sync.WaitGroup
@@ -109,6 +115,7 @@ func NewServer(o ServerOptions) (*Server, error) {
 		cancel:    cancel,
 		handlers:  make(map[string]HandlerFunc),
 		sessions:  make(map[*Session]struct{}),
+		refusing:  make(map[*Session]struct{}),
 		listeners: make(map[net.Listener]struct{}),
 	}, nil
 }
@@ -202,10 +209,19 @@ func (s *Server) accept(conn net.Conn) {
 		conn.Close()
 		return
 	case len(s.sessions) >= s.o.MaxSessions:
+		// Tracked apart from the sessions, so it does not count against the
+		// cap, but Shutdown can still close it.
+		sess.w = NewLineWriter(&deadlineWriter{conn: conn, timeout: refusalWriteTimeout, now: s.o.Now}, MaxServerLine)
+		s.refusing[sess] = struct{}{}
 		s.wg.Add(1)
 		s.mu.Unlock()
 		go func() {
 			defer s.wg.Done()
+			defer func() {
+				s.mu.Lock()
+				delete(s.refusing, sess)
+				s.mu.Unlock()
+			}()
 			s.log.Warn("ipc.session_refused", "reason", "session_limit")
 			sess.Close(CodeShuttingDown, "session limit")
 		}()
@@ -239,7 +255,16 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	for sess := range s.sessions {
 		sessions = append(sessions, sess)
 	}
+	refusing := make([]*Session, 0, len(s.refusing))
+	for sess := range s.refusing {
+		refusing = append(refusing, sess)
+	}
 	s.mu.Unlock()
+
+	// A refusal still writing its notice is dropped without one.
+	for _, sess := range refusing {
+		sess.conn.Close()
+	}
 
 	// Close in parallel: each closing notice may wait up to WriteTimeout on a
 	// client that stopped reading.

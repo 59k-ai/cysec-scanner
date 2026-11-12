@@ -628,3 +628,49 @@ func TestReadFailureAuditNeverReadsAsRoot(t *testing.T) {
 		t.Fatalf("audit line for an unidentified peer: %s", logs)
 	}
 }
+
+func TestRefusedConnectionsDoNotHoldShutdown(t *testing.T) {
+	h := newHarness(t, func(o *ServerOptions) {
+		o.MaxSessions = 1
+		o.WriteTimeout = 30 * time.Second
+	})
+	a := newRaw(t, h.l.Dial(t))
+	a.hello()
+	// Over the cap and never reading: the closing notice cannot be written.
+	for range 3 {
+		_ = h.l.Dial(t)
+	}
+	time.Sleep(20 * time.Millisecond)
+	began := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go func() {
+		// The authenticated session reads its notice, so only refusals could hold
+		// the shutdown.
+		_ = a.recv()
+	}()
+	if err := h.srv.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+	if took := time.Since(began); took > time.Second {
+		t.Fatalf("Shutdown waited %v on refused connections", took)
+	}
+}
+
+func TestRefusalNoticeHasAShortDeadline(t *testing.T) {
+	h := newHarness(t, func(o *ServerOptions) {
+		o.MaxSessions = 1
+		o.WriteTimeout = 30 * time.Second
+	})
+	a := newRaw(t, h.l.Dial(t))
+	a.hello()
+	c := h.l.Dial(t)
+	// Never read: the notice write must give up after the refusal deadline and
+	// drop the connection.
+	time.Sleep(refusalWriteTimeout + 500*time.Millisecond)
+	_ = c.SetReadDeadline(time.Now().Add(time.Second))
+	buf := make([]byte, 1)
+	if _, err := c.Read(buf); !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrClosedPipe) {
+		t.Fatalf("a refused connection was still open after the refusal deadline: %v", err)
+	}
+}
