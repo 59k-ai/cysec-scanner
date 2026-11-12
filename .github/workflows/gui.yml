@@ -188,15 +188,19 @@ jobs:
 
       # Sentinel for the IPC end-to-end proof: the test must have run every
       # slot with nothing skipped, so a lost env var or a filtered test list
-      # cannot turn the leg green without it.
+      # cannot turn the leg green without it. The binary is run directly and
+      # QtTest writes its log to a file (-o): on the Windows runner ctest
+      # captured none of the test's stdout log, so the Totals line was absent.
       - name: IPC end-to-end sentinel
         shell: bash
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
           set -euo pipefail
+          bin=$(find gui/build -type f \( -name tst_ipc_e2e -o -name tst_ipc_e2e.exe \) | head -n 1)
+          test -n "$bin" || { echo "tst_ipc_e2e binary not found" >&2; exit 1; }
           status=0
-          ctest --test-dir gui/build -C Release -R tst_ipc_e2e -V > ipc-e2e.log 2>&1 || status=$?
+          "$bin" -platform offscreen -o ipc-e2e.log,txt || status=$?
           cat ipc-e2e.log
           test "$status" -eq 0
           grep -Eq 'Totals: [0-9]+ passed, 0 failed, 0 skipped' ipc-e2e.log
