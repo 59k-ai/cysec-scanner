@@ -15,6 +15,7 @@
 #include "scanevent.h"
 #include "scansession.h"
 
+#include <QDateTime>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -189,6 +190,11 @@ public:
         running = false;
         emit failedToStart(error);
     }
+    void emitRunAttached(const QString &runId, double startedAtTs)
+    {
+        running = true;
+        emit runAttached(runId, startedAtTs);
+    }
 
     int startCalls = 0;
     int stopCalls = 0;
@@ -229,6 +235,14 @@ private slots:
     void discardResultsReturnsToIdle();
     void newScanClearsPreviousResults();
     void setBackendSwapsConnections();
+
+    // A run the session did not start (local IPC host).
+    void attachEntersRunning();
+    void attachSameRunKeepsModels();
+    void attachNewRunResets();
+    void newStartErrorsMapped_data();
+    void newStartErrorsMapped();
+    void finishedWithoutPayloadPath();
 
     // Session + real transport against cysec-fake-engine.
     void integrationCompleted();
@@ -690,6 +704,153 @@ void TstSession::setBackendSwapsConnections()
         s.setBackend(&c);
     }
     QCOMPARE(s.backend(), nullptr);
+}
+
+static double secondsAgo(int seconds)
+{
+    return double(QDateTime::currentMSecsSinceEpoch()) / 1000.0 - seconds;
+}
+
+void TstSession::attachEntersRunning()
+{
+    FakeBackend b;
+    ScanSession s;
+    s.setBackend(&b);
+    // Leftovers from an earlier scan in this window.
+    s.hosts()->upsert(hostEvent(QStringLiteral("192.0.2.99")).host);
+    s.hosts()->flushNow();
+    s.log()->append(QStringLiteral("warn"), QStringLiteral("old"));
+    QCOMPARE(s.hosts()->count(), 1);
+
+    b.emitRunAttached(QStringLiteral("r1"), secondsAgo(120));
+    QCOMPARE(s.state(), ScanSession::Running);
+    QCOMPARE(b.startCalls, 0);
+    QCOMPARE(s.hosts()->count(), 0);
+    QCOMPARE(s.log()->count(), 0);
+    QCOMPARE(s.currentStageIndex(), -1);
+    // Elapsed follows the run's own start, not the moment of attaching.
+    QTRY_VERIFY_WITH_TIMEOUT(s.elapsedSeconds() >= 120, 500);
+    QVERIFY(s.elapsedSeconds() < 125);
+
+    // Events of the attached run are shown; stop cancels it.
+    b.emitEvent(hostEvent(QStringLiteral("192.0.2.10")));
+    s.hosts()->flushNow();
+    QCOMPARE(s.hostsFound(), 1);
+    s.stop();
+    QCOMPARE(b.stopCalls, 1);
+    QCOMPARE(s.state(), ScanSession::Stopping);
+}
+
+void TstSession::attachSameRunKeepsModels()
+{
+    FakeBackend b;
+    ScanSession s;
+    s.setBackend(&b);
+    const double t = secondsAgo(5);
+    b.emitRunAttached(QStringLiteral("r1"), t);
+    b.emitEvent(scanStart(true));
+    b.emitEvent(hostEvent(QStringLiteral("192.0.2.10")));
+    b.emitEvent(logEvent(QStringLiteral("warn"), QStringLiteral("slow host")));
+    b.emitEvent(stageProgress(QStringLiteral("discovery"), 3, 8));
+    s.hosts()->flushNow();
+    QCOMPARE(s.hostsFound(), 1);
+
+    // A reconnect announces the same run again and replays its snapshot.
+    QSignalSpy hostsReset(s.hosts(), &QAbstractItemModel::modelReset);
+    b.emitRunAttached(QStringLiteral("r1"), t);
+    QCOMPARE(s.state(), ScanSession::Running);
+    QCOMPARE(hostsReset.count(), 0);
+    QCOMPARE(s.log()->count(), 1);
+    QVERIFY(s.capabilitiesKnown());
+    QCOMPARE(s.stageDone(), 3);
+    b.emitEvent(hostEvent(QStringLiteral("192.0.2.10")));
+    b.emitEvent(hostEvent(QStringLiteral("192.0.2.11")));
+    s.hosts()->flushNow();
+    QCOMPARE(s.hostsFound(), 2);
+    QTRY_VERIFY_WITH_TIMEOUT(s.elapsedSeconds() >= 5, 500);
+}
+
+void TstSession::attachNewRunResets()
+{
+    FakeBackend b;
+    ScanSession s;
+    s.setBackend(&b);
+    b.emitRunAttached(QStringLiteral("r1"), secondsAgo(1));
+    b.emitEvent(hostEvent(QStringLiteral("192.0.2.10")));
+    b.emitEvent(logEvent(QStringLiteral("warn"), QStringLiteral("x")));
+    b.emitFinished(ScanBackend::Completed, 0, QString());
+    QCOMPARE(s.state(), ScanSession::Completed);
+    QCOMPARE(s.hostsFound(), 1);
+    QVERIFY(s.hasUnexportedResults());
+
+    b.emitRunAttached(QStringLiteral("r2"), secondsAgo(0));
+    QCOMPARE(s.state(), ScanSession::Running);
+    QCOMPARE(s.hostsFound(), 0);
+    QCOMPARE(s.log()->count(), 0);
+    QVERIFY(!s.hasUnexportedResults());
+    QVERIFY(!s.partial());
+    QCOMPARE(s.failure(), ScanSession::NoFailure);
+    QVERIFY(s.elapsedSeconds() < 2);
+
+    // A run the session starts itself is a new run too.
+    b.emitFinished(ScanBackend::Completed, 0, QString());
+    s.start({QStringLiteral("192.0.2.0/24")}, QString(), false);
+    QCOMPARE(b.startCalls, 1);
+    b.emitEvent(hostEvent(QStringLiteral("192.0.2.20")));
+    s.hosts()->flushNow();
+    b.emitRunAttached(QStringLiteral("r2"), secondsAgo(0));
+    QCOMPARE(s.hostsFound(), 0);
+}
+
+void TstSession::newStartErrorsMapped_data()
+{
+    QTest::addColumn<int>("error");
+    QTest::addColumn<int>("failure");
+    QTest::newRow("service unavailable")
+        << int(ScanBackend::ServiceUnavailable) << int(ScanSession::ServiceUnavailable);
+    QTest::newRow("not authorized")
+        << int(ScanBackend::NotAuthorized) << int(ScanSession::NotAuthorized);
+    QTest::newRow("protocol mismatch")
+        << int(ScanBackend::ProtocolMismatch) << int(ScanSession::ProtocolMismatch);
+    QTest::newRow("server not trusted")
+        << int(ScanBackend::ServerNotTrusted) << int(ScanSession::ServerNotTrusted);
+}
+
+void TstSession::newStartErrorsMapped()
+{
+    QFETCH(int, error);
+    QFETCH(int, failure);
+    // Existing values keep their numbers; new ones are appended.
+    QCOMPARE(int(ScanBackend::EngineNotFound), 0);
+    QCOMPARE(int(ScanBackend::EngineFailedToStart), 1);
+    QCOMPARE(int(ScanSession::EngineRejectedInput), 4);
+
+    FakeBackend b;
+    ScanSession s;
+    s.setBackend(&b);
+    s.start({QStringLiteral("192.0.2.0/24")}, QString(), false);
+    b.emitFailedToStart(ScanBackend::StartError(error));
+    QCOMPARE(s.state(), ScanSession::Failed);
+    QCOMPARE(int(s.failure()), failure);
+}
+
+void TstSession::finishedWithoutPayloadPath()
+{
+    FakeBackend b;
+    ScanSession s;
+    s.setBackend(&b);
+    s.start({QStringLiteral("192.0.2.0/24")}, QString(), false);
+    b.emitEvent(hostEvent(QStringLiteral("192.0.2.10")));
+    QSignalSpy reconciled(&s, &ScanSession::reconciled);
+    // A run on a local service keeps its payload service-side.
+    b.emitFinished(ScanBackend::Completed, 0, QString());
+    QCOMPARE(s.state(), ScanSession::Completed);
+    QVERIFY(!s.hasPayload());
+    QVERIFY(s.payloadPath().isEmpty());
+    QVERIFY(!s.partial());
+    QCOMPARE(reconciled.count(), 0);
+    QCOMPARE(s.hostsFound(), 1);
+    QCOMPARE(s.failure(), ScanSession::NoFailure);
 }
 
 void TstSession::init()
