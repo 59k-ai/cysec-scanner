@@ -99,36 +99,45 @@ func clientToken(h windows.Handle) (windows.Token, error) {
 }
 
 func identifyPeer(c net.Conn) (Peer, error) {
+	p, _, err := identifyPeerMembership(c)
+	return p, err
+}
+
+// identifyPeerMembership is identifyPeer that also reports the raw
+// BUILTIN\Administrators membership of the client token. Peer.Admin folds
+// LocalSystem in by its user SID, which hides the membership result for a
+// LocalSystem client; tests observe it here.
+func identifyPeerMembership(c net.Conn) (Peer, bool, error) {
 	p := Peer{UID: -1, GID: -1}
 	fc, ok := c.(interface{ Fd() uintptr })
 	if !ok {
-		return p, fmt.Errorf("ipc: %T has no pipe handle", c)
+		return p, false, fmt.Errorf("ipc: %T has no pipe handle", c)
 	}
 	h := windows.Handle(fc.Fd())
 	tok, err := clientToken(h)
 	if err != nil {
-		return p, err
+		return p, false, err
 	}
 	defer tok.Close()
 
 	tu, err := tok.GetTokenUser()
 	if err != nil {
-		return p, fmt.Errorf("ipc: client token user: %w", err)
+		return p, false, fmt.Errorf("ipc: client token user: %w", err)
 	}
 	p.SID = tu.User.Sid.String()
 	ba, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
 	if err != nil {
-		return p, err
+		return p, false, err
 	}
 	member, err := tok.IsMember(ba)
 	if err != nil {
-		return p, fmt.Errorf("ipc: client group check: %w", err)
+		return p, false, fmt.Errorf("ipc: client group check: %w", err)
 	}
 	p.Admin = member || p.SID == localSystemSID
 	var pid uint32
 	if err := windows.GetNamedPipeClientProcessId(h, &pid); err != nil {
-		return p, fmt.Errorf("ipc: client pid: %w", err)
+		return p, false, fmt.Errorf("ipc: client pid: %w", err)
 	}
 	p.PID = int(pid)
-	return p, nil
+	return p, member, nil
 }

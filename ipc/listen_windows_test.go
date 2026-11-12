@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"runtime"
@@ -93,9 +94,18 @@ func adminTestSDDL(t *testing.T) string {
 // impersonation context is that of the last message read) and identifies it.
 func serverPeer(t *testing.T, l Listener) (Peer, error) {
 	t.Helper()
+	p, _, err := serverPeerMembership(t, l)
+	return p, err
+}
+
+// serverPeerMembership is serverPeer that also returns the server-side
+// BUILTIN\Administrators membership of the client token.
+func serverPeerMembership(t *testing.T, l Listener) (Peer, bool, error) {
+	t.Helper()
 	type res struct {
-		p   Peer
-		err error
+		p      Peer
+		member bool
+		err    error
 	}
 	ch := make(chan res, 1)
 	go func() {
@@ -111,14 +121,22 @@ func serverPeer(t *testing.T, l Listener) (Peer, error) {
 			return
 		}
 		p, err := l.Identify()(c)
-		ch <- res{p, err}
+		if err != nil {
+			ch <- res{err: err}
+			return
+		}
+		mp, member, err := identifyPeerMembership(c)
+		if err == nil && (mp.SID != p.SID || mp.PID != p.PID || mp.Admin != p.Admin) {
+			err = fmt.Errorf("listener identified %+v, membership read %+v", p, mp)
+		}
+		ch <- res{p, member, err}
 	}()
 	select {
 	case r := <-ch:
-		return r.p, r.err
+		return r.p, r.member, r.err
 	case <-time.After(10 * time.Second):
 		t.Fatal("server timed out")
-		return Peer{}, nil
+		return Peer{}, false, nil
 	}
 }
 
@@ -390,12 +408,13 @@ func TestPeerWindowsRestrictedRefused(t *testing.T) {
 	l := listenPipe(t, userName, sameUserSDDL(t))
 	ch := make(chan struct{})
 	var p Peer
-	var err error
-	go func() { p, err = serverPeer(t, l); close(ch) }()
 	var baMember bool
-	var memberErr error
+	var err error
+	// The membership bit comes from the identification-level token the
+	// server obtains, the token production authorizes, not from the
+	// client thread's own token.
+	go func() { p, baMember, err = serverPeerMembership(t, l); close(ch) }()
 	asRestricted(t, tok, func() {
-		baMember, memberErr = threadIsAdminMember()
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		c, derr := Dial(ctx, userName)
@@ -410,20 +429,17 @@ func TestPeerWindowsRestrictedRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("restricted peer: %v", err)
 	}
-	if memberErr != nil {
-		t.Fatalf("membership check: %v", memberErr)
-	}
 	if baMember {
-		t.Fatal("a deny-only administrators SID counted as membership")
+		t.Fatal("the server saw a deny-only administrators SID as membership")
 	}
 	if system {
 		// LocalSystem is admin by its user SID, whatever its groups say, so
-		// the peer is admin here; the membership half is proven above with
-		// the same check identifyPeer makes.
+		// the peer is admin here; the membership half is proven above on the
+		// server-side token.
 		if p.SID != localSystemSID || !p.Admin {
 			t.Fatalf("restricted LocalSystem peer %+v, want admin by SID", p)
 		}
-		t.Log("same-user half ran as LocalSystem: membership checked on the impersonated token")
+		t.Log("same-user half ran as LocalSystem: membership checked on the server-side client token")
 		return
 	}
 	if p.Admin {
@@ -432,21 +448,6 @@ func TestPeerWindowsRestrictedRefused(t *testing.T) {
 	if err := AdminAuthorizer(-1).Authorize(p); err == nil {
 		t.Fatal("AdminAuthorizer accepted a UAC-filtered admin")
 	}
-}
-
-// threadIsAdminMember runs the membership check identifyPeer makes, on the
-// token the calling thread is impersonating.
-func threadIsAdminMember() (bool, error) {
-	var tok windows.Token
-	if err := windows.OpenThreadToken(windows.CurrentThread(), windows.TOKEN_QUERY, true, &tok); err != nil {
-		return false, err
-	}
-	defer tok.Close()
-	ba, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
-	if err != nil {
-		return false, err
-	}
-	return tok.IsMember(ba)
 }
 
 // fdConn is a net.Conn stand-in that exposes a pipe handle.
