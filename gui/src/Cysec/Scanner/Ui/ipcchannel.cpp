@@ -41,6 +41,10 @@ bool integral(const QJsonValue &v, qint64 *out)
     return true;
 }
 
+// Zeroes the byte copies of the token this file owns. Best effort, memory
+// hygiene only: the QString copy inside the hello params (implicitly shared
+// by the QJsonObjects) lives until attempt() returns and is never zeroed,
+// and neither are copies Qt or the allocator made on the way.
 void wipe(QByteArray &bytes)
 {
     bytes.fill('\0');
@@ -188,7 +192,8 @@ bool IpcChannel::writeMessage(const QJsonObject &message)
     QByteArray line = QJsonDocument(message).toJson(QJsonDocument::Compact);
     line.append('\n');
     const bool ok = m_socket->write(line) == line.size();
-    // The hello line carries the token; do not leave the serialized copy.
+    // The hello line carries the token; do not leave this serialized copy
+    // (best effort, see wipe()).
     wipe(line);
     if (ok)
         m_socket->flush();
