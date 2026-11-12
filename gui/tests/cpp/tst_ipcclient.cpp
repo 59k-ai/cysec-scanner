@@ -151,6 +151,8 @@ private slots:
     void tokenReaderRules();
     void windowsConnectorSourceRules();
     void backendResyncsAfterBufferOverflow();
+    void nullIdErrorKeepsTheSession();
+    void nullIdHelloRefusalIsNotAuthorized();
 
 private:
     bool writeToken(const QByteArray &token, int mode = 0600);
@@ -455,6 +457,8 @@ void TstIpcClient::hostileServerLines()
         QByteArray(2 << 20, 'x') + '\n',
         QByteArray("{\"id\":1,\"result\":{}}\n"),
         QByteArray("{\"jsonrpc\":\"2.0\",\"method\":\"progress\",\"params\":[1]}\n"),
+        QByteArray("{\"jsonrpc\":\"2.0\",\"id\":null,\"result\":{}}\n"),
+        QByteArray("{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":\"x\"}\n"),
     };
     for (qsizetype i = 0; i < hostile.size(); ++i) {
         Peer *p = handshake(channel, i);
@@ -668,6 +672,49 @@ void TstIpcClient::backendResyncsAfterBufferOverflow()
     for (const QString &line : backend.diagnosticsTail())
         noted = noted || line.contains(QStringLiteral("re-syncing"));
     QVERIFY(noted);
+}
+
+// The server answers a line it cannot parse or that is too large with an
+// id-null error. That is legal JSON-RPC and fails no call of ours: the
+// session stays up and later calls still correlate.
+void TstIpcClient::nullIdErrorKeepsTheSession()
+{
+    IpcChannel channel(endpoint());
+    QSignalSpy failures(&channel, &IpcChannel::failure);
+    QSignalSpy errors(&channel, &IpcChannel::callFailed);
+    QSignalSpy replies(&channel, &IpcChannel::replied);
+    channel.open();
+    Peer *p = handshake(channel, 0);
+    QVERIFY(p);
+
+    const qint64 id = channel.call(QStringLiteral("status.get"), {});
+    QVERIFY(id > 0);
+    ScriptedServer::sendRaw(
+        p, "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32700,\"message\":\"parse error\"}}\n");
+    ScriptedServer::send(p, response(id, QJsonObject{{"state", "idle"}}));
+    QTRY_COMPARE_WITH_TIMEOUT(replies.count(), 1, kWait);
+    QCOMPARE(replies.at(0).at(0).toLongLong(), id);
+    QCOMPARE(errors.count(), 0);
+    QCOMPARE(failures.count(), 0);
+    QCOMPARE(channel.state(), IpcChannel::Ready);
+    QCOMPARE(m_server->peerCount(), qsizetype(1));
+}
+
+// A hello the server refuses before reading its id (too large, too late) is
+// answered with an id-null -32001; that is a refusal, not a protocol error.
+void TstIpcClient::nullIdHelloRefusalIsNotAuthorized()
+{
+    IpcChannel channel(endpoint());
+    channel.setBackoff(20, 80);
+    QSignalSpy failures(&channel, &IpcChannel::failure);
+    channel.open();
+    QTRY_COMPARE_WITH_TIMEOUT(m_server->peerCount(), qsizetype(1), kWait);
+    Peer *p = m_server->peer(0);
+    QTRY_VERIFY_WITH_TIMEOUT(!p->lines.isEmpty(), kWait);
+    ScriptedServer::sendRaw(
+        p, "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32001,\"message\":\"unauthenticated\"}}\n");
+    QTRY_COMPARE_WITH_TIMEOUT(failures.count(), 1, kWait);
+    QCOMPARE(failures.at(0).at(0).value<IpcChannel::Failure>(), IpcChannel::NotAuthorized);
 }
 
 // QTEST_MAIN (QGuiApplication) because ctest passes -platform offscreen.

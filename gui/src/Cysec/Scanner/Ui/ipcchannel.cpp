@@ -255,6 +255,29 @@ bool IpcChannel::handleLine(const QByteArray &line)
     const QJsonValue idValue = o.value(QLatin1StringView("id"));
     const QJsonValue methodValue = o.value(QLatin1StringView("method"));
 
+    if (idValue.isNull()) {
+        // JSON-RPC answers a request it could not attribute (a parse error,
+        // an oversize line, a hello refused before its id was read) with
+        // id null. Only an error may carry it.
+        const QJsonValue error = o.value(QLatin1StringView("error"));
+        qint64 code = 0;
+        if (o.contains(QLatin1StringView("result")) || !methodValue.isUndefined()
+            || !error.isObject()
+            || !integral(error.toObject().value(QLatin1StringView("code")), &code)) {
+            fail(ProtocolError, Retry::Yes);
+            return false;
+        }
+        if (m_state == Authenticating) {
+            // The answer to our hello: the same refusal mapping applies.
+            const quint64 gen = m_generation;
+            handleHelloAnswer(o);
+            return gen == m_generation;
+        }
+        // No call of ours is attributable to it, so none fails; the session
+        // stays up.
+        return true;
+    }
+
     if (!idValue.isUndefined()) {
         // A response. The host never sends requests to the client.
         qint64 id = 0;
