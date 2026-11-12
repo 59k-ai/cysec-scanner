@@ -16,6 +16,10 @@ import (
 // package's working directory (go test runs with CWD = the package dir).
 const noticesPath = "../../THIRD_PARTY_NOTICES.md"
 
+// goModPath is the repo-root go.mod, the source of the module list the
+// notices must cover.
+const goModPath = "../../go.mod"
+
 // dataset is one logical bundled dataset derived from data/allowlist.json. A
 // dataset may be backed by several allowlist entries (the IEEE OUI snapshot is
 // three files: MA-L/MA-M/MA-S) — grouping them here is what lets the test prove
@@ -35,7 +39,7 @@ type dataset struct {
 //   - lists each dataset separately even when two share a license (no dedup
 //     silently drops a required attribution — probed via the three OUI blocks
 //     which all share the NOASSERTION license),
-//   - states the empty Go-dependency case explicitly, and
+//   - lists every module go.mod requires, at its pinned version, and
 //   - emits datasets in deterministic order sorted by embedded data path.
 func TestNoticesComplete(t *testing.T) {
 	t.Parallel()
@@ -110,9 +114,22 @@ func TestNoticesComplete(t *testing.T) {
 		}
 	}
 
-	// Empty Go-dependency case stated explicitly (LIC-01 empty probe).
-	if !strings.Contains(strings.ToLower(notices), "no third-party go runtime dependencies") {
-		t.Error("THIRD_PARTY_NOTICES.md must explicitly state the empty Go-dependency case")
+	// Every module required by go.mod (direct or indirect) is listed with its
+	// pinned version, and the stale empty-dependency claim is gone.
+	mods, err := goModRequires(goModPath)
+	if err != nil {
+		t.Fatalf("read %q: %v", goModPath, err)
+	}
+	if len(mods) == 0 {
+		t.Fatalf("%q declares no requirements; the module notice probe would be vacuous", goModPath)
+	}
+	for _, m := range mods {
+		if !strings.Contains(notices, "`"+m.path+"` | "+m.version+" |") {
+			t.Errorf("THIRD_PARTY_NOTICES.md missing Go-module row for %s %s", m.path, m.version)
+		}
+	}
+	if strings.Contains(strings.ToLower(notices), "no third-party go runtime dependencies") {
+		t.Error("THIRD_PARTY_NOTICES.md still claims there are no third-party Go dependencies")
 	}
 
 	// Deterministic order: datasets must appear sorted by embedded data path.
@@ -139,4 +156,44 @@ func firstCopyrightHolder(c string) string {
 		return strings.TrimSpace(c[i+2:])
 	}
 	return c
+}
+
+type goModule struct {
+	path    string
+	version string
+}
+
+// goModRequires returns every require entry of a go.mod, from both the
+// single-line form and require blocks. A small line parser is enough for the
+// tidy-formatted file and keeps this test free of extra modules.
+func goModRequires(path string) ([]goModule, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var mods []goModule
+	inBlock := false
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if i := strings.Index(line, "//"); i >= 0 {
+			line = strings.TrimSpace(line[:i])
+		}
+		switch {
+		case line == "require (":
+			inBlock = true
+			continue
+		case inBlock && line == ")":
+			inBlock = false
+			continue
+		case strings.HasPrefix(line, "require "):
+			line = strings.TrimSpace(strings.TrimPrefix(line, "require "))
+		case !inBlock:
+			continue
+		}
+		f := strings.Fields(line)
+		if len(f) == 2 {
+			mods = append(mods, goModule{path: f[0], version: f[1]})
+		}
+	}
+	return mods, nil
 }

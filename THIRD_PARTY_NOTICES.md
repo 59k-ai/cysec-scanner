@@ -85,15 +85,27 @@ POSSIBILITY OF SUCH DAMAGE.
 
 ## Go-Module Dependencies
 
-This repository currently has no third-party Go runtime dependencies at this
-phase; the module graph is effectively stdlib-only (see `go.mod`). This section
-is therefore complete and correct for the empty-dependency case, not silently
-missing.
+Every third-party Go module that `go list -deps ./...` links into a Linux,
+macOS or Windows build of this module is listed below with its license and
+copyright line, as read from the module's `LICENSE` file at the pinned version
+in `go.mod`. The `ci-gates` license job checks the same graph with
+`go-licenses` for the host OS and again for `GOOS=windows`, so a Windows-only
+module cannot ship unclassified. Sorted by module path.
 
-As engine code and its dependencies land in later phases, the per-dependency
-notices gathered by `go-licenses save ./... --save_path=...` will be appended
-here so that every third-party Go module that ships in the binary carries its
-required notice.
+| Module | Version | License | Copyright | Linked by |
+|--------|---------|---------|-----------|-----------|
+| `github.com/google/uuid` | v1.6.0 | BSD-3-Clause | Copyright (c) 2009,2014 Google Inc. All rights reserved. | all builds (via pro-bing) |
+| `github.com/Microsoft/go-winio` | v0.6.4 | MIT | Copyright (c) 2015 Microsoft | Windows builds of the `ipc` package and the `tools/ipc-refhost` reference host only; the engine (`cmd/cysec-scanner`, `scanner/...`) never links it |
+| `github.com/prometheus-community/pro-bing` | v0.9.1 | MIT | Copyright 2022 The Prometheus Authors; Copyright 2016 Cameron Sparr and contributors. | all builds |
+| `golang.org/x/net` | v0.62.0 | BSD-3-Clause | Copyright 2009 The Go Authors. | all builds |
+| `golang.org/x/sync` | v0.24.0 | BSD-3-Clause | Copyright 2009 The Go Authors. | all builds (via pro-bing) |
+| `golang.org/x/sys` | v0.49.0 | BSD-3-Clause | Copyright 2009 The Go Authors. | all builds |
+| `golang.org/x/time` | v0.16.0 | BSD-3-Clause | Copyright 2009 The Go Authors. | all builds |
+
+The full license texts ship inside each module at the version above
+(`go mod download` places them in the module cache) and can be collected with
+`go-licenses save ./... --save_path=<dir>`. When a module is added, bumped or
+removed, this table changes in the same commit.
 
 ## GUI Assets
 
