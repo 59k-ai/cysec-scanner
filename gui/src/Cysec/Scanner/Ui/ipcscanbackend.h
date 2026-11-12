@@ -104,6 +104,9 @@ private:
     // follows a refused start) is unanswered: until the run id is known it
     // is not clear which run they belong to.
     QList<QPair<QString, QJsonObject>> m_buffered;
+    // Set when a notification was dropped from m_buffered; the flush then
+    // re-subscribes for a fresh snapshot.
+    bool m_bufferOverflowed = false;
 
     QStringList m_diagnostics;
 };

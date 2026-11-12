@@ -24,6 +24,10 @@ constexpr qsizetype kDiagnosticChars = 300;
 // Wire contract: a snapshot carries at most 10,000 hosts plus a few stage
 // items; anything beyond this while a start is unanswered is not ours.
 constexpr qsizetype kMaxBuffered = 12000;
+// run.state and other non-progress notifications are never dropped for the
+// progress cap: losing an "ended" would leave the session running. They get
+// their own small allowance on top.
+constexpr qsizetype kMaxBufferedControl = 256;
 
 double nowSeconds()
 {
@@ -140,6 +144,7 @@ void IpcScanBackend::detach()
     m_subscribed = false;
     m_running = false;
     m_buffered.clear();
+    m_bufferOverflowed = false;
     m_channel->close();
 }
 
@@ -310,8 +315,11 @@ void IpcScanBackend::onCallFailed(qint64 id, int code, const QString &message,
 void IpcScanBackend::onNotification(const QString &method, const QJsonObject &params)
 {
     if (buffering()) {
-        if (m_buffered.size() < kMaxBuffered)
+        const bool progress = method == QLatin1StringView("progress");
+        if (m_buffered.size() < (progress ? kMaxBuffered : kMaxBuffered + kMaxBufferedControl))
             m_buffered.append({method, params});
+        else
+            m_bufferOverflowed = true;
         return;
     }
     handleNotification(method, params);
@@ -438,6 +446,14 @@ void IpcScanBackend::flushBuffered()
     const QList<QPair<QString, QJsonObject>> items = std::exchange(m_buffered, {});
     for (const auto &item : items)
         handleNotification(item.first, item.second);
+    if (std::exchange(m_bufferOverflowed, false)) {
+        // Some notifications were dropped: re-sync from a fresh snapshot
+        // instead of trusting the partial buffer. A second subscribe on the
+        // same session replaces the first.
+        addDiagnostic(QStringLiteral("ipc: notifications were dropped while a call was pending; re-syncing"));
+        if (m_channel->state() == IpcChannel::Ready && m_subscribeId == -1)
+            m_subscribeId = m_channel->call(QStringLiteral("events.subscribe"), QJsonObject());
+    }
 }
 
 bool IpcScanBackend::buffering() const

@@ -10,6 +10,7 @@
 #include "ipcchannel.h"
 #include "ipcconnect.h"
 #include "ipcendpoint.h"
+#include "ipcscanbackend.h"
 
 #include <QFile>
 #include <QJsonArray>
@@ -149,6 +150,7 @@ private slots:
     void tokenFilePermissions();
     void tokenReaderRules();
     void windowsConnectorSourceRules();
+    void backendResyncsAfterBufferOverflow();
 
 private:
     bool writeToken(const QByteArray &token, int mode = 0600);
@@ -610,6 +612,62 @@ void TstIpcClient::windowsConnectorSourceRules()
         QVERIFY(other.open(QIODevice::ReadOnly));
         QVERIFY2(!other.readAll().contains("AbstractNamespace"), name);
     }
+}
+
+// While run.start is unanswered the backend buffers notifications. A flood
+// past the progress cap must not cost the run.state that ends the run, and
+// the backend must re-subscribe for a fresh snapshot instead of trusting
+// what it kept.
+void TstIpcClient::backendResyncsAfterBufferOverflow()
+{
+    IpcScanBackend backend(endpoint());
+    QSignalSpy finished(&backend, &ScanBackend::finished);
+    ScanRequest request;
+    request.cidrs = {QStringLiteral("192.0.2.0/30")};
+    backend.start(request);
+    Peer *p = handshake(*backend.channel(), 0);
+    QVERIFY(p);
+
+    QTRY_VERIFY_WITH_TIMEOUT(p->lines.size() >= 2, kWait);
+    const QJsonObject subscribe = lineObject(p, 1);
+    QCOMPARE(subscribe.value("method").toString(), QStringLiteral("events.subscribe"));
+    ScriptedServer::send(p, response(subscribe.value("id").toInteger(),
+                                     QJsonObject{{"run", QJsonValue::Null}, {"last_seq", -1}}));
+    QTRY_VERIFY_WITH_TIMEOUT(p->lines.size() >= 3, kWait);
+    const QJsonObject start = lineObject(p, 2);
+    QCOMPARE(start.value("method").toString(), QStringLiteral("run.start"));
+
+    QByteArray flood;
+    const QJsonObject event{{"kind", "stage_progress"}, {"seq", 1}, {"agent", "port"},
+                            {"progress", QJsonObject{{"done", 1}, {"total", 2}}}};
+    const QByteArray progressLine =
+        QJsonDocument(notificationObject(QStringLiteral("progress"),
+                                         QJsonObject{{"run_id", "r-1"}, {"replay", false},
+                                                     {"event", event}}))
+            .toJson(QJsonDocument::Compact)
+        + '\n';
+    for (int i = 0; i < 12100; ++i)
+        flood += progressLine;
+    flood += QJsonDocument(notificationObject(QStringLiteral("run.state"),
+                                              QJsonObject{{"run_id", "r-1"},
+                                                          {"state", "ended"},
+                                                          {"outcome", "shipped"}}))
+                 .toJson(QJsonDocument::Compact)
+             + '\n';
+    flood += QJsonDocument(response(start.value("id").toInteger(), QJsonObject{{"run_id", "r-1"}}))
+                 .toJson(QJsonDocument::Compact)
+             + '\n';
+    ScriptedServer::sendRaw(p, flood);
+
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 10000);
+    QCOMPARE(finished.at(0).at(0).value<ScanBackend::EndStatus>(), ScanBackend::Completed);
+    QVERIFY(!backend.isRunning());
+    QTRY_VERIFY_WITH_TIMEOUT(p->lines.size() >= 4, kWait);
+    QCOMPARE(lineObject(p, 3).value("method").toString(), QStringLiteral("events.subscribe"));
+    bool noted = false;
+    for (const QString &line : backend.diagnosticsTail())
+        noted = noted || line.contains(QStringLiteral("re-syncing"));
+    QVERIFY(noted);
 }
 
 // QTEST_MAIN (QGuiApplication) because ctest passes -platform offscreen.
