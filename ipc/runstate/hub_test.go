@@ -67,19 +67,30 @@ func TestSubscribeSnapshotAtomic(t *testing.T) {
 	h := NewHub(HubOptions{QueueSize: total + 16})
 	h.Begin(testRun("r1"))
 
-	var published atomic.Int64
+	// gates[k] is closed once k events have been published; each subscriber
+	// waits on one gate so it joins at a random point of the stream.
+	gates := make([]chan struct{}, total+1)
+	targets := make([]int, subs)
+	for i := range targets {
+		targets[i] = rand.IntN(total + 1)
+		if gates[targets[i]] == nil {
+			gates[targets[i]] = make(chan struct{})
+		}
+	}
+	open := func(k int) {
+		if gates[k] != nil {
+			close(gates[k])
+		}
+	}
 	var wg sync.WaitGroup
 	var subscribed sync.WaitGroup
 	errs := make(chan error, subs)
 	subscribed.Add(subs)
 	for i := 0; i < subs; i++ {
-		target := int64(rand.IntN(total + 1))
 		wg.Add(1)
-		go func(n int, target int64) {
+		go func(n int, gate <-chan struct{}) {
 			defer wg.Done()
-			for published.Load() < target {
-				time.Sleep(time.Microsecond)
-			}
+			<-gate
 			snap, sub := h.Subscribe()
 			subscribed.Done()
 			defer sub.Close()
@@ -98,6 +109,8 @@ func TestSubscribeSnapshotAtomic(t *testing.T) {
 				}
 			}
 			next := snap.LastSeq + 1
+			timeout := time.NewTimer(20 * time.Second)
+			defer timeout.Stop()
 			for {
 				select {
 				case it, ok := <-sub.C():
@@ -124,23 +137,24 @@ func TestSubscribeSnapshotAtomic(t *testing.T) {
 						return
 					}
 					next++
-				case <-time.After(10 * time.Second):
+				case <-timeout.C:
 					errs <- fmt.Errorf("sub %d: timed out at seq %d", n, next)
 					return
 				}
 			}
-		}(i, target)
+		}(i, gates[targets[i]])
 	}
 
+	open(0)
 	h.Publish(scanStartEv(0, "discovery", "port"))
-	published.Store(1)
+	open(1)
 	for seq := 1; seq < total; seq++ {
 		if seq%3 == 0 {
 			h.Publish(hostEv(seq, fmt.Sprintf("10.%d.%d.%d", seq>>16&255, seq>>8&255, seq&255), ""))
 		} else {
 			h.Publish(stageEv(seq, "port", seq, total))
 		}
-		published.Store(int64(seq + 1))
+		open(seq + 1)
 	}
 	subscribed.Wait()
 	h.End("shipped")
