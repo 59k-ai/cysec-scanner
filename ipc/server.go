@@ -379,7 +379,13 @@ func (ss *Session) serve() {
 		case errors.Is(err, io.EOF):
 			reason = "eof"
 		}
-		peer, _ := o.Identify(ss.conn) // best effort, for the audit line only
+		// Best effort, for the audit line only. On error the peer is the
+		// unknown identity, never what Identify returned beside the error:
+		// a zero Peer reads as uid 0.
+		peer, ierr := o.Identify(ss.conn)
+		if ierr != nil {
+			peer = Peer{UID: -1, GID: -1}
+		}
 		ss.refuse(nil, reason, peer, nil)
 		return
 	}

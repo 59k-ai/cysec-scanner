@@ -610,3 +610,21 @@ func TestNoTokenInLogs(t *testing.T) {
 		}
 	}
 }
+
+func TestReadFailureAuditNeverReadsAsRoot(t *testing.T) {
+	h := newHarness(t, func(o *ServerOptions) {
+		o.Identify = func(net.Conn) (Peer, error) { return Peer{}, errors.New("no identity") }
+	})
+	c := h.l.Dial(t)
+	_ = c.Close()
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(h.logs.String(), `"ipc.auth_refused"`) {
+		if time.Now().After(deadline) {
+			t.Fatalf("no refusal logged: %s", h.logs.String())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if logs := h.logs.String(); strings.Contains(logs, `"uid":0`) || !strings.Contains(logs, `"uid":-1`) {
+		t.Fatalf("audit line for an unidentified peer: %s", logs)
+	}
+}

@@ -11,6 +11,10 @@ import "net"
 // On Unix, UID, GID and Groups come from the socket peer credentials and SID
 // is empty. On Windows, UID and GID are -1 and SID names the token user.
 // Admin is the host's verdict on whether the peer is a privileged principal.
+//
+// The zero Peer has UID 0, which is root. An IdentifyFunc that fails must
+// return Peer{UID: -1, GID: -1} with its error, and a caller must never use
+// the Peer returned beside an error.
 type Peer struct {
 	UID    int
 	GID    int
