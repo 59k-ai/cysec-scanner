@@ -274,6 +274,12 @@ type Session struct {
 
 	peerMu sync.Mutex
 	peer   Peer
+
+	// onReply, when a handler sets it, runs on the session goroutine right
+	// after that handler's response was written (ok true) or could not be
+	// (ok false). It lets a handler start streaming notifications only once
+	// its response is on the wire.
+	onReply func(ok bool)
 }
 
 func (s *Server) newSession(conn net.Conn) *Session {
@@ -482,8 +488,14 @@ func (ss *Session) dispatch(line []byte) error {
 	if fn == nil {
 		return ss.reply(id, nil, &Error{Code: CodeMethodNotFound, Message: "method not found"})
 	}
+	ss.onReply = nil
 	result, err := ss.call(fn, req.Method, req.Params)
+	after := ss.onReply
+	ss.onReply = nil
 	if err != nil {
+		if after != nil {
+			after(false)
+		}
 		var e *Error
 		if !errors.As(err, &e) {
 			ss.srv.log.Error("ipc.handler_failed", "method", req.Method, "error_class", fmt.Sprintf("%T", err))
@@ -492,6 +504,9 @@ func (ss *Session) dispatch(line []byte) error {
 		return ss.reply(id, nil, e)
 	}
 	err = ss.reply(id, result, nil)
+	if after != nil {
+		after(err == nil)
+	}
 	if errors.Is(err, ErrLineTooLong) {
 		ss.srv.log.Error("ipc.result_too_large", "method", req.Method)
 		return ss.reply(id, nil, &Error{Code: CodeInternal, Message: "internal error"})
