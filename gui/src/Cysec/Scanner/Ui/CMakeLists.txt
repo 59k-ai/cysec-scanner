@@ -67,6 +67,8 @@ qt_add_qml_module(cysec_scanner_ui
         languagecontroller.cpp
         formatter.h
         formatter.cpp
+        ipcendpoint.h
+        ipcconnect.h
     RESOURCES
         fonts/IBMPlexSans-Regular.ttf
         fonts/IBMPlexSans-SemiBold.ttf
@@ -81,6 +83,15 @@ qt_add_qml_module(cysec_scanner_ui
 )
 
 target_link_libraries(cysec_scanner_ui PUBLIC Qt6::Quick Qt6::QuickControls2 Qt6::Network)
+
+# Local IPC client connector: exactly one per OS. The Windows one opens the
+# pipe itself (SQOS) and reads the server's token user, hence advapi32.
+if(WIN32)
+    target_sources(cysec_scanner_ui PRIVATE ipcconnect_win.cpp)
+    target_link_libraries(cysec_scanner_ui PRIVATE advapi32)
+else()
+    target_sources(cysec_scanner_ui PRIVATE ipcconnect_unix.cpp)
+endif()
 
 target_compile_definitions(cysec_scanner_ui PUBLIC
     CYSEC_SCANNER_GUI_VERSION="${CYSEC_SCANNER_GUI_VERSION}")
