@@ -69,6 +69,8 @@ qt_add_qml_module(cysec_scanner_ui
         formatter.cpp
         ipcendpoint.h
         ipcconnect.h
+        ipcchannel.h
+        ipcchannel.cpp
     RESOURCES
         fonts/IBMPlexSans-Regular.ttf
         fonts/IBMPlexSans-SemiBold.ttf

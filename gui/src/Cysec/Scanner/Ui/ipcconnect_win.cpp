@@ -129,11 +129,12 @@ IpcConnectError ipcConnect(QLocalSocket *socket, const IpcEndpoint &endpoint, in
     if (!socket || !ipcAddressIsValid(endpoint.address))
         return IpcConnectError::InvalidAddress;
 
-    const std::wstring path = endpoint.address.toStdWString();
+    // QString's UTF-16 buffer is NUL-terminated and lives as long as endpoint.
+    const auto *path = reinterpret_cast<const wchar_t *>(endpoint.address.utf16());
     const QDeadlineTimer deadline(timeoutMs);
     HANDLE h = INVALID_HANDLE_VALUE;
     for (;;) {
-        h = CreateFileW(path.c_str(), GENERIC_READ | FILE_WRITE_DATA | FILE_WRITE_ATTRIBUTES, 0,
+        h = CreateFileW(path, GENERIC_READ | FILE_WRITE_DATA | FILE_WRITE_ATTRIBUTES, 0,
                         nullptr, OPEN_EXISTING,
                         FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION,
                         nullptr);
@@ -146,7 +147,7 @@ IpcConnectError ipcConnect(QLocalSocket *socket, const IpcEndpoint &endpoint, in
                 return IpcConnectError::Busy;
             // Wait for an instance; a failed wait (timeout) loops back to
             // the deadline check, which then reports Busy.
-            WaitNamedPipeW(path.c_str(), DWORD(qMax<qint64>(1, remaining)));
+            WaitNamedPipeW(path, DWORD(qMax<qint64>(1, remaining)));
             if (deadline.hasExpired())
                 return IpcConnectError::Busy;
             continue;
