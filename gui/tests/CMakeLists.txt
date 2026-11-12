@@ -46,7 +46,7 @@ endfunction()
 
 foreach(_cysec_test IN ITEMS
         ndjsonparser processbackend hostmodel logmodel validators formatter
-        exporter engineinfo language session real_engine ipcclient)
+        exporter engineinfo language session real_engine ipcclient ipc_e2e)
     cysec_gui_cpp_test(${_cysec_test})
 endforeach()
 
