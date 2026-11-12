@@ -20,9 +20,12 @@ package ipc
 // The parent's ancestors are checked too: each must be owned by root, the
 // caller or DirOwnerUID, and not writable by group or world unless sticky
 // (/tmp). Otherwise another user could rename the parent away between the
-// check and bind and put their own directory in its place. Symlinks on the
-// way are allowed (macOS /var), and the resolved path is checked the same
-// way.
+// check and bind and put their own directory in its place. One exception:
+// a root-owned ancestor may be group-writable when its group is trusted
+// (UnixOptions.TrustedAncestorGIDs). macOS ships /var/run as root:daemon
+// 0775, and refusing it would refuse every system socket directory there.
+// Symlinks on the way are allowed (macOS /var), and the resolved path is
+// checked the same way.
 //
 // Linux abstract sockets ("@name") are refused: socket permissions have no
 // meaning there, so anyone could connect or squat.
@@ -35,6 +38,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -68,7 +73,11 @@ func listen(o ListenOptions) (Listener, error) {
 		return nil, err
 	}
 	dir := filepath.Dir(addr)
-	if err := checkAncestors(dir, u.DirOwnerUID); err != nil {
+	trusted := u.TrustedAncestorGIDs
+	if trusted == nil {
+		trusted = defaultTrustedAncestorGIDs()
+	}
+	if err := checkAncestors(dir, u.DirOwnerUID, trusted); err != nil {
 		return nil, err
 	}
 	if err := prepareDir(dir, u); err != nil {
@@ -122,11 +131,22 @@ func validUnixAddress(addr string) error {
 	return nil
 }
 
+// defaultTrustedAncestorGIDs is the group trust used when
+// UnixOptions.TrustedAncestorGIDs is nil: the root group everywhere, and on
+// macOS also daemon (gid 1), which owns /var/run (root:daemon 0775) and has
+// only root as a member on a stock system.
+func defaultTrustedAncestorGIDs() []int {
+	if runtime.GOOS == "darwin" {
+		return []int{0, 1}
+	}
+	return []int{0}
+}
+
 // checkAncestors verifies every directory above dir, on the path as given
 // and on the path with symlinks resolved.
-func checkAncestors(dir string, ownerUID int) error {
+func checkAncestors(dir string, ownerUID int, trustedGIDs []int) error {
 	parent := filepath.Dir(dir)
-	if err := checkAncestorChain(parent, ownerUID); err != nil {
+	if err := checkAncestorChain(parent, ownerUID, trustedGIDs); err != nil {
 		return err
 	}
 	resolved, err := filepath.EvalSymlinks(parent)
@@ -136,13 +156,13 @@ func checkAncestors(dir string, ownerUID int) error {
 	if resolved == parent {
 		return nil
 	}
-	return checkAncestorChain(resolved, ownerUID)
+	return checkAncestorChain(resolved, ownerUID, trustedGIDs)
 }
 
 // checkAncestorChain checks p and each of its parents up to the root with
 // Lstat. A symlink is judged by its own owner: its parent, checked in turn,
 // keeps others from replacing it.
-func checkAncestorChain(p string, ownerUID int) error {
+func checkAncestorChain(p string, ownerUID int, trustedGIDs []int) error {
 	euid := os.Geteuid()
 	for {
 		fi, err := os.Lstat(p)
@@ -153,11 +173,14 @@ func checkAncestorChain(p string, ownerUID int) error {
 		if !ok {
 			return fmt.Errorf("%w: %s has no owner information", ErrUnsafeDir, p)
 		}
-		if uid := int(st.Uid); uid != 0 && uid != euid && uid != ownerUID {
+		uid := int(st.Uid)
+		if uid != 0 && uid != euid && uid != ownerUID {
 			return fmt.Errorf("%w: ancestor %s is owned by uid %d", ErrUnsafeDir, p, uid)
 		}
-		if fi.IsDir() && fi.Mode().Perm()&0o022 != 0 && fi.Mode()&fs.ModeSticky == 0 {
-			return fmt.Errorf("%w: ancestor %s is group- or world-writable", ErrUnsafeDir, p)
+		if fi.IsDir() {
+			if err := ancestorWriteBits(fi.Mode(), uid, int(st.Gid), trustedGIDs); err != nil {
+				return fmt.Errorf("%w: ancestor %s %v", ErrUnsafeDir, p, err)
+			}
 		}
 		next := filepath.Dir(p)
 		if next == p {
@@ -165,6 +188,24 @@ func checkAncestorChain(p string, ownerUID int) error {
 		}
 		p = next
 	}
+}
+
+// ancestorWriteBits judges the write bits of one ancestor directory. A
+// sticky directory is fine (others cannot rename entries they do not own).
+// World write is always refused. Group write is accepted only on a
+// root-owned directory whose group is trusted.
+func ancestorWriteBits(mode fs.FileMode, uid, gid int, trustedGIDs []int) error {
+	if mode&fs.ModeSticky != 0 {
+		return nil
+	}
+	perm := mode.Perm()
+	if perm&0o002 != 0 {
+		return errors.New("is world-writable")
+	}
+	if perm&0o020 != 0 && (uid != 0 || !slices.Contains(trustedGIDs, gid)) {
+		return fmt.Errorf("is group-writable by untrusted gid %d", gid)
+	}
+	return nil
 }
 
 // prepareDir creates (when allowed) and verifies the socket's parent.

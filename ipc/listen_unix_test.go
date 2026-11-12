@@ -475,3 +475,29 @@ func TestUnixAncestorPolicy(t *testing.T) {
 		_ = l.Close()
 	})
 }
+
+func TestAncestorWriteBits(t *testing.T) {
+	trusted := []int{0, 1}
+	cases := []struct {
+		name     string
+		mode     os.FileMode
+		uid, gid int
+		ok       bool
+	}{
+		{"privateDir", 0o755 | os.ModeDir, 0, 0, true},
+		{"rootGroupWritableTrustedGroup", 0o775 | os.ModeDir, 0, 1, true},
+		{"rootGroupWritableUntrustedGroup", 0o775 | os.ModeDir, 0, 80, false},
+		{"userGroupWritableTrustedGroup", 0o775 | os.ModeDir, 501, 0, false},
+		{"rootWorldWritable", 0o757 | os.ModeDir, 0, 0, false},
+		{"rootWorldWritableSticky", 0o777 | os.ModeDir | os.ModeSticky, 0, 0, true},
+	}
+	for _, c := range cases {
+		err := ancestorWriteBits(c.mode, c.uid, c.gid, trusted)
+		if (err == nil) != c.ok {
+			t.Errorf("%s: err %v, want ok=%v", c.name, err, c.ok)
+		}
+	}
+	if err := ancestorWriteBits(0o775|os.ModeDir, 0, 0, []int{}); err == nil {
+		t.Error("an empty trust list accepted a group-writable ancestor")
+	}
+}
