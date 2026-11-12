@@ -17,6 +17,13 @@ package ipc
 // the umask-derived mode is not reachable, because only the directory's
 // owner and group can traverse into it.
 //
+// The parent's ancestors are checked too: each must be owned by root, the
+// caller or DirOwnerUID, and not writable by group or world unless sticky
+// (/tmp). Otherwise another user could rename the parent away between the
+// check and bind and put their own directory in its place. Symlinks on the
+// way are allowed (macOS /var), and the resolved path is checked the same
+// way.
+//
 // Linux abstract sockets ("@name") are refused: socket permissions have no
 // meaning there, so anyone could connect or squat.
 
@@ -61,6 +68,9 @@ func listen(o ListenOptions) (Listener, error) {
 		return nil, err
 	}
 	dir := filepath.Dir(addr)
+	if err := checkAncestors(dir, u.DirOwnerUID); err != nil {
+		return nil, err
+	}
 	if err := prepareDir(dir, u); err != nil {
 		return nil, err
 	}
@@ -85,6 +95,12 @@ func listen(o ListenOptions) (Listener, error) {
 			return nil, fmt.Errorf("ipc: socket group: %w", err)
 		}
 	}
+	// Chmod follows symlinks. The directory check above means nobody else
+	// can swap the entry, and this Lstat proves it is still our socket.
+	if fi, err := os.Lstat(addr); err != nil || fi.Mode()&fs.ModeSocket == 0 {
+		_ = ul.Close()
+		return nil, fmt.Errorf("%w: %s is no longer the bound socket", ErrUnsafeDir, addr)
+	}
 	if err := os.Chmod(addr, u.SocketMode.Perm()); err != nil {
 		_ = ul.Close()
 		return nil, fmt.Errorf("ipc: socket mode: %w", err)
@@ -104,6 +120,51 @@ func validUnixAddress(addr string) error {
 		return fmt.Errorf("%w: socket path is not clean", ErrInvalidAddress)
 	}
 	return nil
+}
+
+// checkAncestors verifies every directory above dir, on the path as given
+// and on the path with symlinks resolved.
+func checkAncestors(dir string, ownerUID int) error {
+	parent := filepath.Dir(dir)
+	if err := checkAncestorChain(parent, ownerUID); err != nil {
+		return err
+	}
+	resolved, err := filepath.EvalSymlinks(parent)
+	if err != nil {
+		return fmt.Errorf("%w: resolve %s: %v", ErrUnsafeDir, parent, err)
+	}
+	if resolved == parent {
+		return nil
+	}
+	return checkAncestorChain(resolved, ownerUID)
+}
+
+// checkAncestorChain checks p and each of its parents up to the root with
+// Lstat. A symlink is judged by its own owner: its parent, checked in turn,
+// keeps others from replacing it.
+func checkAncestorChain(p string, ownerUID int) error {
+	euid := os.Geteuid()
+	for {
+		fi, err := os.Lstat(p)
+		if err != nil {
+			return fmt.Errorf("%w: %s: %v", ErrUnsafeDir, p, err)
+		}
+		st, ok := fi.Sys().(*syscall.Stat_t)
+		if !ok {
+			return fmt.Errorf("%w: %s has no owner information", ErrUnsafeDir, p)
+		}
+		if uid := int(st.Uid); uid != 0 && uid != euid && uid != ownerUID {
+			return fmt.Errorf("%w: ancestor %s is owned by uid %d", ErrUnsafeDir, p, uid)
+		}
+		if fi.IsDir() && fi.Mode().Perm()&0o022 != 0 && fi.Mode()&fs.ModeSticky == 0 {
+			return fmt.Errorf("%w: ancestor %s is group- or world-writable", ErrUnsafeDir, p)
+		}
+		next := filepath.Dir(p)
+		if next == p {
+			return nil
+		}
+		p = next
+	}
 }
 
 // prepareDir creates (when allowed) and verifies the socket's parent.

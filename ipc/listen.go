@@ -45,6 +45,11 @@ var (
 // ListenOptions configure Listen. Address is an absolute socket path on Unix
 // and a \\.\pipe\ name on Windows; only the block for the running platform
 // is read.
+//
+// On Unix every directory above the socket's parent must be owned by root,
+// the caller or UnixOptions.DirOwnerUID and must not be group- or
+// world-writable unless it is sticky; Listen refuses the address otherwise
+// (ErrUnsafeDir).
 type ListenOptions struct {
 	Address string
 	Unix    UnixOptions

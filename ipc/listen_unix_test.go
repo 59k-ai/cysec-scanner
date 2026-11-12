@@ -412,3 +412,66 @@ func TestUnixConnectNeedsWritePermission(t *testing.T) {
 		t.Fatalf("dial a mode-0000 socket: err %v, want permission denied", err)
 	}
 }
+
+func TestUnixAncestorPolicy(t *testing.T) {
+	setup := func(t *testing.T, midMode os.FileMode) (string, string) {
+		t.Helper()
+		base := shortDir(t)
+		mid := filepath.Join(base, "m")
+		if err := os.Mkdir(mid, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(mid, midMode); err != nil {
+			t.Fatal(err)
+		}
+		dir := filepath.Join(mid, "d")
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		return base, filepath.Join(dir, "s.sock")
+	}
+
+	t.Run("worldWritableAncestorRefused", func(t *testing.T) {
+		_, addr := setup(t, 0o777)
+		if l, err := Listen(userOpts(addr)); !errors.Is(err, ErrUnsafeDir) {
+			if l != nil {
+				_ = l.Close()
+			}
+			t.Fatalf("Listen under a world-writable ancestor: %v, want ErrUnsafeDir", err)
+		}
+	})
+	t.Run("stickyAncestorAllowed", func(t *testing.T) {
+		_, addr := setup(t, 0o777|os.ModeSticky)
+		l, err := Listen(userOpts(addr))
+		if err != nil {
+			t.Fatalf("Listen under a sticky ancestor: %v", err)
+		}
+		_ = l.Close()
+	})
+	t.Run("symlinkedAncestorChecksTheTarget", func(t *testing.T) {
+		base, _ := setup(t, 0o777)
+		link := filepath.Join(base, "l")
+		if err := os.Symlink(filepath.Join(base, "m"), link); err != nil {
+			t.Fatal(err)
+		}
+		// The link is safe, the directory it points at is world-writable.
+		if l, err := Listen(userOpts(filepath.Join(link, "d", "s.sock"))); !errors.Is(err, ErrUnsafeDir) {
+			if l != nil {
+				_ = l.Close()
+			}
+			t.Fatalf("Listen through a link to a world-writable ancestor: %v, want ErrUnsafeDir", err)
+		}
+	})
+	t.Run("symlinkedSafeAncestorAllowed", func(t *testing.T) {
+		base, _ := setup(t, 0o700)
+		link := filepath.Join(base, "l")
+		if err := os.Symlink(filepath.Join(base, "m"), link); err != nil {
+			t.Fatal(err)
+		}
+		l, err := Listen(userOpts(filepath.Join(link, "d", "s.sock")))
+		if err != nil {
+			t.Fatalf("Listen through a link to a safe ancestor: %v", err)
+		}
+		_ = l.Close()
+	})
+}
