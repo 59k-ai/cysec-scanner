@@ -300,7 +300,8 @@ var (
 
 // restrictedToken returns a copy of the process token in which
 // BUILTIN\Administrators is deny-only, as in a UAC-filtered admin token.
-func restrictedToken(t *testing.T) windows.Token {
+// Any extra SIDs are made deny-only as well.
+func restrictedToken(t *testing.T, extra ...*windows.SID) windows.Token {
 	t.Helper()
 	var proc windows.Token
 	err := windows.OpenProcessToken(windows.CurrentProcess(),
@@ -314,9 +315,12 @@ func restrictedToken(t *testing.T) windows.Token {
 		t.Fatal(err)
 	}
 	disable := []windows.SIDAndAttributes{{Sid: ba}}
+	for _, sid := range extra {
+		disable = append(disable, windows.SIDAndAttributes{Sid: sid})
+	}
 	var out windows.Token
 	r, _, e := procCreateRestrictedToken.Call(uintptr(proc), 0,
-		1, uintptr(unsafe.Pointer(&disable[0])), 0, 0, 0, 0, uintptr(unsafe.Pointer(&out)))
+		uintptr(len(disable)), uintptr(unsafe.Pointer(&disable[0])), 0, 0, 0, 0, uintptr(unsafe.Pointer(&out)))
 	if r == 0 {
 		t.Fatalf("CreateRestrictedToken: %v", e)
 	}
@@ -352,10 +356,24 @@ func TestPeerWindowsRestrictedRefused(t *testing.T) {
 	tok := restrictedToken(t)
 	defer tok.Close()
 
+	// The admin DACL also grants LocalSystem by its user SID, which a
+	// deny-only administrators group leaves enabled. Under LocalSystem the
+	// admin-pipe half therefore makes the user SID deny-only too, so that
+	// only the administrators ACE could still match.
+	adminTok := tok
+	system := false
+	if user, err := windows.GetCurrentProcessToken().GetTokenUser(); err != nil {
+		t.Fatalf("token user: %v", err)
+	} else if user.User.Sid.String() == localSystemSID {
+		system = true
+		adminTok = restrictedToken(t, user.User.Sid)
+		defer adminTok.Close()
+	}
+
 	adminName := pipeName(t)
 	listenPipe(t, adminName, AdminPipeSDDL)
 	var dialErr error
-	asRestricted(t, tok, func() {
+	asRestricted(t, adminTok, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		c, err := Dial(ctx, adminName)
@@ -374,7 +392,10 @@ func TestPeerWindowsRestrictedRefused(t *testing.T) {
 	var p Peer
 	var err error
 	go func() { p, err = serverPeer(t, l); close(ch) }()
+	var baMember bool
+	var memberErr error
 	asRestricted(t, tok, func() {
+		baMember, memberErr = threadIsAdminMember()
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		c, derr := Dial(ctx, userName)
@@ -389,12 +410,43 @@ func TestPeerWindowsRestrictedRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("restricted peer: %v", err)
 	}
+	if memberErr != nil {
+		t.Fatalf("membership check: %v", memberErr)
+	}
+	if baMember {
+		t.Fatal("a deny-only administrators SID counted as membership")
+	}
+	if system {
+		// LocalSystem is admin by its user SID, whatever its groups say, so
+		// the peer is admin here; the membership half is proven above with
+		// the same check identifyPeer makes.
+		if p.SID != localSystemSID || !p.Admin {
+			t.Fatalf("restricted LocalSystem peer %+v, want admin by SID", p)
+		}
+		t.Log("same-user half ran as LocalSystem: membership checked on the impersonated token")
+		return
+	}
 	if p.Admin {
 		t.Fatal("a deny-only administrators SID counted as membership")
 	}
 	if err := AdminAuthorizer(-1).Authorize(p); err == nil {
 		t.Fatal("AdminAuthorizer accepted a UAC-filtered admin")
 	}
+}
+
+// threadIsAdminMember runs the membership check identifyPeer makes, on the
+// token the calling thread is impersonating.
+func threadIsAdminMember() (bool, error) {
+	var tok windows.Token
+	if err := windows.OpenThreadToken(windows.CurrentThread(), windows.TOKEN_QUERY, true, &tok); err != nil {
+		return false, err
+	}
+	defer tok.Close()
+	ba, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	if err != nil {
+		return false, err
+	}
+	return tok.IsMember(ba)
 }
 
 // fdConn is a net.Conn stand-in that exposes a pipe handle.
