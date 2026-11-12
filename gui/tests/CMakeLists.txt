@@ -46,9 +46,16 @@ endfunction()
 
 foreach(_cysec_test IN ITEMS
         ndjsonparser processbackend hostmodel logmodel validators formatter
-        exporter engineinfo language session real_engine)
+        exporter engineinfo language session real_engine ipcclient)
     cysec_gui_cpp_test(${_cysec_test})
 endforeach()
+
+# tst_ipcclient also checks source-level rules of the Windows connector, so
+# it runs on every OS and needs the module's source directory.
+if(TARGET tst_ipcclient)
+    target_compile_definitions(tst_ipcclient PRIVATE
+        CYSEC_GUI_UI_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../src/Cysec/Scanner/Ui")
+endif()
 
 # macOS: the app bundle must be signed so Local Network privacy can match the
 # user's decision (UAT 13 step 3). Only meaningful when the app is built.
