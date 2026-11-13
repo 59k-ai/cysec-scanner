@@ -12,18 +12,21 @@
 # Every listener constructor form: inbound TCP/UDP/IP/unix/packet/multicast/
 # HTTP sockets, the HTTP server forms that open their own listener (the
 # ListenAndServe(TLS) method on any server value, an http.Server literal),
+# the crypto/tls listener forms (tls.Listen, tls.NewListener), the test
+# servers that bind loopback themselves (httptest.NewServer and friends,
+# nettest.NewLocalListener; they can be imported from non-test code),
 # the raw listen(2) and bind(2) wrappers (syscall, x/sys/unix,
 # x/sys/windows; a bound datagram socket receives without listen), the
 # named-pipe and Hyper-V socket listeners (go-winio ListenPipe and
 # ListenHvsock, the raw Win32 CreateNamedPipe call) and the public
 # ipc.Listen constructor. The `\(` on net.Listen, ipc.Listen and the raw
 # wrappers keeps the net.Listener type from matching.
-ENG04_PATTERN='net\.Listen\(|net\.ListenTCP|net\.ListenUDP|net\.ListenIP|net\.ListenPacket|net\.ListenUnix|net\.ListenMulticastUDP|net\.FileListener|net\.ListenConfig|icmp\.ListenPacket|http\.ListenAndServe|\.ListenAndServe(TLS)?\(|http\.Server\{|new\(http\.Server\)|http\.Serve\(|syscall\.Listen\(|unix\.Listen\(|windows\.Listen\(|(syscall|unix|windows)\.Bind\(|ListenPipe|ListenHvsock|CreateNamedPipe|ipc\.Listen\('
+ENG04_PATTERN='net\.Listen\(|net\.ListenTCP|net\.ListenUDP|net\.ListenIP|net\.ListenPacket|net\.ListenUnix|net\.ListenMulticastUDP|net\.FileListener|net\.ListenConfig|icmp\.ListenPacket|http\.ListenAndServe|\.ListenAndServe(TLS)?\(|http\.Server\{|new\(http\.Server\)|http\.Serve\(|tls\.Listen\(|tls\.NewListener|httptest\.New(Unstarted|TLS)?Server|nettest\.NewLocalListener|syscall\.Listen\(|unix\.Listen\(|windows\.Listen\(|(syscall|unix|windows)\.Bind\(|ListenPipe|ListenHvsock|CreateNamedPipe|ipc\.Listen\('
 
 # A grep cannot follow an aliased or dot import, so any non-blank alias of a
 # package that has a listener constructor fails the gate outright: such a
 # file would call the constructor under a name the pattern above never sees.
-ENG04_ALIAS_PATTERN='^[^:]+:[0-9]+:[[:space:]]*(import[[:space:]]+)?([A-Za-z][A-Za-z0-9_]*|_[A-Za-z0-9_]+|\.)[[:space:]]+"(net|net/http|syscall|golang\.org/x/sys/unix|golang\.org/x/sys/windows|golang\.org/x/net/icmp|github\.com/Microsoft/go-winio|github\.com/59k-ai/cysec-scanner/ipc)"'
+ENG04_ALIAS_PATTERN='^[^:]+:[0-9]+:[[:space:]]*(import[[:space:]]+)?([A-Za-z][A-Za-z0-9_]*|_[A-Za-z0-9_]+|\.)[[:space:]]+"(net|net/http|net/http/httptest|crypto/tls|golang\.org/x/net/nettest|syscall|golang\.org/x/sys/unix|golang\.org/x/sys/windows|golang\.org/x/net/icmp|github\.com/Microsoft/go-winio|github\.com/59k-ai/cysec-scanner/ipc)"'
 
 # The pinned sites, one file+construct pair each. Every entry is anchored at
 # the start of the path:line:content hit, so a file whose path merely ends in

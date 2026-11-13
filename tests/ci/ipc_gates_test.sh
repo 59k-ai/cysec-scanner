@@ -6,7 +6,8 @@
 # pinned sites, the engine linking the ipc package, a pinned site removed, a
 # path that only ends in a pinned path, a pinned site quoted in a comment, a
 # second call in a pinned file, a raw listen wrapper, an aliased import, an
-# HTTP server value's ListenAndServe, a raw bind) reddens the gate.
+# HTTP server value's ListenAndServe, a raw bind, a TLS listener, a test
+# server, an aliased crypto/tls import) reddens the gate.
 #
 # Usage: bash tests/ci/ipc_gates_test.sh   (from anywhere inside the repo)
 set -u
@@ -133,6 +134,24 @@ L=$(copy_tree l)
 printf '\n// _ = unix.Bind(fd, sa)\n' >> "$L/scanner/scanner.go"
 index_tree "$L"
 expect_fail L eng04_scan "$L"
+
+# M: a TLS listener, which opens its own TCP socket.
+M=$(copy_tree m)
+printf '\n// _, _ = tls.Listen("tcp", ":0", nil)\n' >> "$M/scanner/scanner.go"
+index_tree "$M"
+expect_fail M eng04_scan "$M"
+
+# N: a test server reached from non-test code; it binds loopback itself.
+N=$(copy_tree n)
+printf '\n// srv := httptest.NewServer(nil)\n' >> "$N/scanner/scanner.go"
+index_tree "$N"
+expect_fail N eng04_scan "$N"
+
+# O: an aliased crypto/tls import, under which tls.Listen is invisible.
+O=$(copy_tree o)
+printf 'package discovery\n\nimport t "crypto/tls"\n\nvar _ = t.VersionTLS13\n' > "$O/internal/discovery/zz_negative_control.go"
+index_tree "$O"
+expect_fail O eng04_scan "$O"
 
 if [ "$FAILED" -ne 0 ]; then
 	echo "IPC_GATES_TEST_FAILED"

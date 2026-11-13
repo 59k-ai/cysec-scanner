@@ -189,7 +189,8 @@ jobs:
   # EVERY listener constructor form — net.Listen(/ListenTCP/ListenUDP/
   # ListenIP/ListenPacket/ListenUnix/ListenMulticastUDP/FileListener/
   # ListenConfig, icmp.ListenPacket, http.ListenAndServe, the ListenAndServe(TLS)
-  # method and http.Server literals, http.Serve(, the raw listen and bind
+  # method and http.Server literals, http.Serve(, tls.Listen/tls.NewListener,
+  # the httptest and nettest loopback servers, the raw listen and bind
   # wrappers (syscall, x/sys/unix, x/sys/windows), the named-pipe and Hyper-V
   # listeners ListenPipe, ListenHvsock and CreateNamedPipe, and the public
   # ipc.Listen( (full list in tests/ci/eng04.sh) — and
