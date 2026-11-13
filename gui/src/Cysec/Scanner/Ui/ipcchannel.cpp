@@ -118,10 +118,17 @@ void IpcChannel::setBackoff(int initialMs, int maxMs)
     m_backoffMs = m_backoffInitialMs;
 }
 
+IpcChannel::CallError IpcChannel::lastCallError() const
+{
+    return m_lastCallError;
+}
+
 qint64 IpcChannel::call(const QString &method, const QJsonObject &params)
 {
-    if (m_state != Ready || !m_socket)
+    if (m_state != Ready || !m_socket) {
+        m_lastCallError = CallError::NotReady;
         return -1;
+    }
     const qint64 id = m_nextId++;
     const QJsonObject message{{QStringLiteral("jsonrpc"), QStringLiteral("2.0")},
                               {QStringLiteral("id"), id},
@@ -129,10 +136,15 @@ qint64 IpcChannel::call(const QString &method, const QJsonObject &params)
                               {QStringLiteral("params"), params}};
     // The host refuses a request line over its limit with an id-null error
     // that names no call; refuse it here instead, before anything is sent.
-    if (QJsonDocument(message).toJson(QJsonDocument::Compact).size() > kMaxRequestLineBytes)
+    if (QJsonDocument(message).toJson(QJsonDocument::Compact).size() > kMaxRequestLineBytes) {
+        m_lastCallError = CallError::TooLarge;
         return -1;
-    if (!writeMessage(message))
+    }
+    if (!writeMessage(message)) {
+        m_lastCallError = CallError::WriteFailed;
         return -1;
+    }
+    m_lastCallError = CallError::None;
     m_pending.insert(id);
     return id;
 }

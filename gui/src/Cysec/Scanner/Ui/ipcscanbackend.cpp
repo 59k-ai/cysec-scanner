@@ -400,9 +400,11 @@ void IpcScanBackend::sendStart()
     }
     m_startId = m_channel->call(QStringLiteral("run.start"), params);
     if (m_startId == -1) {
-        // Ready but refused: the request is over the host's line limit (a
-        // very long scope list). Waiting for the service will not help.
-        if (m_channel->state() == IpcChannel::Ready) {
+        // Only a request over the host's line limit (a very long scope list)
+        // is final: waiting for the service will not help. A session that is
+        // gone or going (not Ready, a failed write, a teardown in progress)
+        // is the service being unavailable.
+        if (m_channel->lastCallError() == IpcChannel::CallError::TooLarge) {
             addDiagnostic(QStringLiteral("ipc: run.start request is too large to send"));
             failStart(EngineFailedToStart);
         } else {

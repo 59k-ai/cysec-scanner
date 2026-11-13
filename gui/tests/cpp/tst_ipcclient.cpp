@@ -155,6 +155,7 @@ private slots:
     void nullIdErrorFailsPendingCalls();
     void oversizeCallIsRefused();
     void backendOversizeStartFails();
+    void callDuringTeardownIsNotReady();
     void nullIdHelloRefusalIsNotAuthorized();
 
 private:
@@ -750,12 +751,48 @@ void TstIpcClient::oversizeCallIsRefused()
         cidrs.append(QStringLiteral("10.%1.%2.0/24").arg(i / 256).arg(i % 256));
     const qint64 bytesBefore = p->bytesRead;
     QCOMPARE(channel.call(QStringLiteral("run.start"), QJsonObject{{"cidrs", cidrs}}), qint64(-1));
+    QCOMPARE(channel.lastCallError(), IpcChannel::CallError::TooLarge);
     QCOMPARE(channel.state(), IpcChannel::Ready);
     const qint64 small = channel.call(QStringLiteral("status.get"), {});
     QVERIFY(small > 0);
+    QCOMPARE(channel.lastCallError(), IpcChannel::CallError::None);
     QTRY_COMPARE_WITH_TIMEOUT(p->lines.size(), qsizetype(2), kWait);
     QCOMPARE(lineObject(p, 1).value("method").toString(), QStringLiteral("status.get"));
     QVERIFY(p->bytesRead - bytesBefore < 1024);
+}
+
+// A call made while a teardown fails the pending calls sees the state still
+// Ready but no socket; it is refused as NotReady, never as TooLarge.
+void TstIpcClient::callDuringTeardownIsNotReady()
+{
+    IpcChannel channel(endpoint());
+    channel.setBackoff(20, 80);
+    channel.open();
+    Peer *p = handshake(channel, 0);
+    QVERIFY(p);
+    const qint64 pending = channel.call(QStringLiteral("status.get"), {});
+    QVERIFY(pending > 0);
+    QTRY_COMPARE_WITH_TIMEOUT(p->lines.size(), qsizetype(2), kWait);
+
+    bool seen = false;
+    qint64 retried = 0;
+    IpcChannel::State stateSeen = IpcChannel::Disconnected;
+    IpcChannel::CallError errorSeen = IpcChannel::CallError::None;
+    connect(&channel, &IpcChannel::callFailed, &channel, [&](qint64 id, int, const QString &, const QJsonObject &) {
+        if (id != pending)
+            return;
+        seen = true;
+        stateSeen = channel.state();
+        retried = channel.call(QStringLiteral("status.get"), {});
+        errorSeen = channel.lastCallError();
+    });
+    // An id-null error with a call in flight tears the session down.
+    ScriptedServer::sendRaw(
+        p, "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32600,\"message\":\"invalid request\"}}\n");
+    QTRY_VERIFY_WITH_TIMEOUT(seen, kWait);
+    QCOMPARE(stateSeen, IpcChannel::Ready);
+    QCOMPARE(retried, qint64(-1));
+    QCOMPARE(errorSeen, IpcChannel::CallError::NotReady);
 }
 
 // A forwarded scope too large for one request line fails the start at once

@@ -60,10 +60,17 @@ public:
     State state() const;
     Failure lastFailure() const;
 
+    // Why the last call() returned -1. A caller tells "will never fit" from
+    // "the session is gone" by this, never by state(): while a teardown fails
+    // the pending calls the state still reads Ready but there is no socket.
+    enum class CallError { None, NotReady, TooLarge, WriteFailed };
+    Q_ENUM(CallError)
+
     // Sends one request. Returns its id, or -1 (and sends nothing) when the
     // channel is not Ready, the write fails, or the serialized request is
-    // over the host's 64 KiB request line limit.
+    // over the host's 64 KiB request line limit; lastCallError() says which.
     qint64 call(const QString &method, const QJsonObject &params);
+    CallError lastCallError() const;
 
     QJsonObject helloResult() const;
 
@@ -103,6 +110,7 @@ private:
     Failure m_lastFailure = NoFailure;
     QJsonObject m_helloResult;
     QSet<qint64> m_pending;
+    CallError m_lastCallError = CallError::None;
     qint64 m_nextId = 1;
     qint64 m_helloId = -1;
     quint64 m_generation = 0;
