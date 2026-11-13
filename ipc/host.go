@@ -309,7 +309,11 @@ func (h *Host) runCancel(ctx context.Context, s *Session, params json.RawMessage
 // eventsSubscribe answers with the snapshot header and starts the session's
 // pump only after that response is written, so the client always sees the
 // response, then the replay, then snapshot.done, then live items. A second
-// subscribe on the same session replaces the first.
+// subscribe on the same session replaces the first. The old pump is halted
+// before the new snapshot is taken, so the two never both deliver an event;
+// the price is that a run.state published in between is in neither, and a
+// re-subscribing client that sees run null treats its run as ended with an
+// unknown outcome. That gap is accepted.
 func (h *Host) eventsSubscribe(_ context.Context, s *Session, _ json.RawMessage) (any, error) {
 	h.mu.Lock()
 	old := h.subs[s]

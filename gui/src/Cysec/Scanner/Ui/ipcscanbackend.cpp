@@ -201,6 +201,8 @@ QStringList IpcScanBackend::diagnosticsTail() const
 void IpcScanBackend::onReady()
 {
     m_subscribed = false;
+    // This subscribe is a full re-sync, so earlier drops are covered.
+    m_bufferOverflowed = false;
     m_subscribeId = m_channel->call(QStringLiteral("events.subscribe"), QJsonObject());
 }
 
@@ -218,6 +220,8 @@ void IpcScanBackend::onReplied(qint64 id, const QJsonObject &result)
     if (id == m_subscribeId) {
         m_subscribeId = -1;
         handleSubscribed(result);
+        if (m_bufferOverflowed)
+            flushBuffered(); // a re-sync skipped while this subscribe was in flight
         return;
     }
     if (id == m_startId) {
@@ -454,14 +458,19 @@ void IpcScanBackend::flushBuffered()
     const QList<QPair<QString, QJsonObject>> items = std::exchange(m_buffered, {});
     for (const auto &item : items)
         handleNotification(item.first, item.second);
-    if (std::exchange(m_bufferOverflowed, false)) {
+    if (m_bufferOverflowed && m_channel->state() == IpcChannel::Ready && m_subscribeId == -1) {
         // Some notifications were dropped: re-sync from a fresh snapshot
         // instead of trusting the partial buffer. A second subscribe on the
         // same session replaces the first.
-        addDiagnostic(QStringLiteral("ipc: notifications were dropped while a call was pending; re-syncing"));
-        if (m_channel->state() == IpcChannel::Ready && m_subscribeId == -1)
-            m_subscribeId = m_channel->call(QStringLiteral("events.subscribe"), QJsonObject());
+        m_subscribeId = m_channel->call(QStringLiteral("events.subscribe"), QJsonObject());
+        if (m_subscribeId != -1) {
+            m_bufferOverflowed = false;
+            addDiagnostic(QStringLiteral("ipc: notifications were dropped while a call was pending; re-syncing"));
+        }
     }
+    // Otherwise the flag stays set: a subscribe already in flight may have
+    // been answered from a snapshot older than the drops, so its reply
+    // retries this; a reconnect subscribes afresh and clears it (onReady).
 }
 
 bool IpcScanBackend::buffering() const
