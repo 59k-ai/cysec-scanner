@@ -50,7 +50,8 @@ var (
 // the caller or UnixOptions.DirOwnerUID and must not be group- or
 // world-writable unless it is sticky; Listen refuses the address otherwise
 // (ErrUnsafeDir). Group write is accepted on a root-owned ancestor whose
-// group is in UnixOptions.TrustedAncestorGIDs.
+// group is gid 0, or on macOS gid 0 or 1 (daemon): /var/run there ships as
+// root:daemon 0775.
 type ListenOptions struct {
 	Address string
 	Unix    UnixOptions
@@ -68,12 +69,6 @@ type ListenOptions struct {
 // one to DirOwnerUID:DirGID and DirMode exactly. HoldsLock declares that the
 // caller holds its single-instance lock, which is the only condition under
 // which a stale socket file is replaced.
-//
-// TrustedAncestorGIDs lists the groups whose write bit is accepted on a
-// root-owned ancestor directory. nil means the platform default: gid 0, and
-// on macOS also gid 1 (daemon), because /var/run there is root:daemon 0775.
-// An empty non-nil slice trusts no group. A world-writable ancestor that is
-// not sticky is always refused.
 type UnixOptions struct {
 	DirOwnerUID int
 	DirGID      int
@@ -82,8 +77,6 @@ type UnixOptions struct {
 	SocketGID   int
 	CreateDir   bool
 	HoldsLock   bool
-
-	TrustedAncestorGIDs []int
 }
 
 // PipeOptions is the policy for a Windows named pipe. SDDL is required:

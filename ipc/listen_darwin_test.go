@@ -12,10 +12,10 @@ import (
 // TestAncestorPolicyAcceptsVarRun runs the ancestor check against the real
 // /var/run, which macOS ships as root:daemon 0775. The check only Lstats, so
 // it needs no root, and a system socket directory such as
-// /var/run/<service> must pass it with the default group trust.
+// /var/run/<service> must pass it with the built-in group trust.
 func TestAncestorPolicyAcceptsVarRun(t *testing.T) {
 	const dir = "/var/run/ipc-ancestor-test"
-	if err := checkAncestors(dir, 0, defaultTrustedAncestorGIDs()); err != nil {
+	if err := checkAncestors(dir, 0, trustedAncestorGIDs()); err != nil {
 		t.Fatalf("default policy refuses a directory under /var/run: %v", err)
 	}
 	fi, err := os.Stat("/var/run")

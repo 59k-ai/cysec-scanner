@@ -22,8 +22,9 @@ package ipc
 // (/tmp). Otherwise another user could rename the parent away between the
 // check and bind and put their own directory in its place. One exception:
 // a root-owned ancestor may be group-writable when its group is trusted
-// (UnixOptions.TrustedAncestorGIDs). macOS ships /var/run as root:daemon
+// (gid 0, and on macOS also daemon). macOS ships /var/run as root:daemon
 // 0775, and refusing it would refuse every system socket directory there.
+// The trust is fixed rather than an option so UnixOptions stays comparable.
 // Symlinks on the way are allowed (macOS /var), and the resolved path is
 // checked the same way.
 //
@@ -73,11 +74,7 @@ func listen(o ListenOptions) (Listener, error) {
 		return nil, err
 	}
 	dir := filepath.Dir(addr)
-	trusted := u.TrustedAncestorGIDs
-	if trusted == nil {
-		trusted = defaultTrustedAncestorGIDs()
-	}
-	if err := checkAncestors(dir, u.DirOwnerUID, trusted); err != nil {
+	if err := checkAncestors(dir, u.DirOwnerUID, trustedAncestorGIDs()); err != nil {
 		return nil, err
 	}
 	if err := prepareDir(dir, u); err != nil {
@@ -131,11 +128,11 @@ func validUnixAddress(addr string) error {
 	return nil
 }
 
-// defaultTrustedAncestorGIDs is the group trust used when
-// UnixOptions.TrustedAncestorGIDs is nil: the root group everywhere, and on
-// macOS also daemon (gid 1), which owns /var/run (root:daemon 0775) and has
-// only root as a member on a stock system.
-func defaultTrustedAncestorGIDs() []int {
+// trustedAncestorGIDs are the groups whose write bit is accepted on a
+// root-owned ancestor: the root group everywhere, and on macOS also daemon
+// (gid 1), which owns /var/run (root:daemon 0775) and has only root as a
+// member on a stock system.
+func trustedAncestorGIDs() []int {
 	if runtime.GOOS == "darwin" {
 		return []int{0, 1}
 	}
