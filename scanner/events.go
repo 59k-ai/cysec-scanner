@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/59k-ai/cysec-scanner/internal/capabilities"
 	"github.com/59k-ai/cysec-scanner/internal/scanstate"
@@ -139,19 +140,25 @@ func (em *eventEmitter) scanEnd(status string, errText *string, assets int) {
 	})
 }
 
-// sanitiseLogText strips control runes (below 0x20 and DEL), caps the length at
-// maxLogRunes without splitting a rune, and trims surrounding whitespace. It
-// mirrors the engine's hostname sanitiser. Markup is left verbatim — rendering
-// safety is the consumer's job.
+// sanitiseLogText maps every control rune (C0, DEL and C1) to a space, caps the
+// length at maxLogRunes without splitting a rune, and trims surrounding
+// whitespace. A control rune becomes a space rather than vanishing, so the words
+// it separated stay apart ("a\tb" is "a b", not "ab") and a consumer that
+// matches on word boundaries still sees them. Markup is left verbatim —
+// rendering safety is the consumer's job.
+//
+// The cap is applied here and nothing is redacted: a consumer that filters
+// messages for sensitive text sees at most the first maxLogRunes runes, and must
+// treat a message cut at the cap as possibly incomplete.
 func sanitiseLogText(s string) string {
 	var b strings.Builder
 	n := 0
 	for _, r := range s {
-		if r < 0x20 || r == 0x7f {
-			continue
-		}
 		if n >= maxLogRunes {
 			break
+		}
+		if unicode.IsControl(r) {
+			r = ' '
 		}
 		b.WriteRune(r)
 		n++

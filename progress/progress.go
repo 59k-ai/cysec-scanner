@@ -120,7 +120,8 @@ type ServiceSummary struct {
 }
 
 // LogLine rides on log. Level is "info", "warn" or "error"; Message is
-// sanitised by the engine (control runes stripped, length capped) before emit.
+// sanitised by the engine (control runes mapped to spaces, length capped at 512
+// runes, nothing redacted) before emit.
 type LogLine struct {
 	Level   string `json:"level"`
 	Message string `json:"message"`

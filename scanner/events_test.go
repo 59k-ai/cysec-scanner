@@ -87,11 +87,14 @@ func TestThrottleStageProgress(t *testing.T) {
 	}
 }
 
-// TestSanitiseLogText proves control runes are stripped, length is capped
+// TestSanitiseLogText proves control runes become spaces, length is capped
 // rune-aware at 512, whitespace is trimmed, and markup is left verbatim.
 func TestSanitiseLogText(t *testing.T) {
-	if got := sanitiseLogText("  a\x00b\x1bc\x7fd\ne  "); got != "abcde" {
-		t.Errorf("control strip = %q", got)
+	if got := sanitiseLogText("  a\x00b\x1bc\x7fd\ne\u0085f\tg  "); got != "a b c d e f g" {
+		t.Errorf("control map = %q", got)
+	}
+	if got := sanitiseLogText("\t\nproxy\tsent\x00token\n"); got != "proxy sent token" {
+		t.Errorf("separators lost: %q", got)
 	}
 	long := strings.Repeat("ä", 2000)
 	got := sanitiseLogText(long)

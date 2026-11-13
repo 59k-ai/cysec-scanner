@@ -169,7 +169,7 @@ func TestRunDetailedFailedScanEnd(t *testing.T) {
 		t.Fatalf("err = %v, want boom", err)
 	}
 	last := events[len(events)-1]
-	if last.ScanEnd == nil || last.ScanEnd.Status != "failed" || last.ScanEnd.Error == nil || *last.ScanEnd.Error != "boom[31m" {
+	if last.ScanEnd == nil || last.ScanEnd.Status != "failed" || last.ScanEnd.Error == nil || *last.ScanEnd.Error != "boom [31m" {
 		t.Fatalf("last event = %+v, want scan_end failed with sanitised error", last)
 	}
 	found := false
