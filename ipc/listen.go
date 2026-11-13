@@ -50,8 +50,9 @@ var (
 // the caller or UnixOptions.DirOwnerUID and must not be group- or
 // world-writable unless it is sticky; Listen refuses the address otherwise
 // (ErrUnsafeDir). Group write is accepted on a root-owned ancestor whose
-// group is gid 0, or on macOS gid 0 or 1 (daemon): /var/run there ships as
-// root:daemon 0775.
+// group is gid 0. On macOS /var/run alone (root:daemon 0775 there) also
+// accepts gid 1, so under /var/run the daemon account (uid/gid 1) is trusted
+// like root.
 type ListenOptions struct {
 	Address string
 	Unix    UnixOptions

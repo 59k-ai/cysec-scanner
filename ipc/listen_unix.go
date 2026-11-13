@@ -74,7 +74,7 @@ func listen(o ListenOptions) (Listener, error) {
 		return nil, err
 	}
 	dir := filepath.Dir(addr)
-	if err := checkAncestors(dir, u.DirOwnerUID, trustedAncestorGIDs()); err != nil {
+	if err := checkAncestors(dir, u.DirOwnerUID, trustedAncestorGIDs); err != nil {
 		return nil, err
 	}
 	if err := prepareDir(dir, u); err != nil {
@@ -128,12 +128,15 @@ func validUnixAddress(addr string) error {
 	return nil
 }
 
-// trustedAncestorGIDs are the groups whose write bit is accepted on a
-// root-owned ancestor: the root group everywhere, and on macOS also daemon
-// (gid 1), which owns /var/run (root:daemon 0775) and has only root as a
-// member on a stock system.
-func trustedAncestorGIDs() []int {
-	if runtime.GOOS == "darwin" {
+// trustedAncestorGIDs returns the groups whose write bit is accepted on the
+// root-owned ancestor at path p: the root group everywhere, and on macOS also
+// daemon (gid 1) for the system socket directory alone. macOS ships /var/run
+// (a path through the /var symlink, so it is checked as /var/run on the given
+// chain and as /private/var/run on the resolved one) as root:daemon 0775, and
+// daemon has only root as a member on a stock system. Any other root:daemon
+// group-writable directory is refused like any untrusted group.
+func trustedAncestorGIDs(p string) []int {
+	if runtime.GOOS == "darwin" && (p == "/var/run" || p == "/private/var/run") {
 		return []int{0, 1}
 	}
 	return []int{0}
@@ -141,7 +144,7 @@ func trustedAncestorGIDs() []int {
 
 // checkAncestors verifies every directory above dir, on the path as given
 // and on the path with symlinks resolved.
-func checkAncestors(dir string, ownerUID int, trustedGIDs []int) error {
+func checkAncestors(dir string, ownerUID int, trustedGIDs func(path string) []int) error {
 	parent := filepath.Dir(dir)
 	if err := checkAncestorChain(parent, ownerUID, trustedGIDs); err != nil {
 		return err
@@ -159,7 +162,7 @@ func checkAncestors(dir string, ownerUID int, trustedGIDs []int) error {
 // checkAncestorChain checks p and each of its parents up to the root with
 // Lstat. A symlink is judged by its own owner: its parent, checked in turn,
 // keeps others from replacing it.
-func checkAncestorChain(p string, ownerUID int, trustedGIDs []int) error {
+func checkAncestorChain(p string, ownerUID int, trustedGIDs func(path string) []int) error {
 	euid := os.Geteuid()
 	for {
 		fi, err := os.Lstat(p)
@@ -175,7 +178,7 @@ func checkAncestorChain(p string, ownerUID int, trustedGIDs []int) error {
 			return fmt.Errorf("%w: ancestor %s is owned by uid %d", ErrUnsafeDir, p, uid)
 		}
 		if fi.IsDir() {
-			if err := ancestorWriteBits(fi.Mode(), uid, int(st.Gid), trustedGIDs); err != nil {
+			if err := ancestorWriteBits(fi.Mode(), uid, int(st.Gid), trustedGIDs(p)); err != nil {
 				return fmt.Errorf("%w: ancestor %s %v", ErrUnsafeDir, p, err)
 			}
 		}
