@@ -17,7 +17,8 @@ import (
 //
 // classify() turns the open-port signature, banner-derived hints, the OUI vendor,
 // and the OS fingerprint (the Phase-3 TTL family plus a banner OS cue) into a
-// verdict, via a first-match-wins precedence engine of eight rules. It re-probes
+// verdict, via a first-match-wins precedence engine (see applyRules for the
+// order). It re-probes
 // nothing: every signal is already on the classifyInput the orchestrator
 // assembled. The engine is a pure function — identical input yields a
 // byte-identical verdict — so the pipeline is reproducible.
@@ -42,7 +43,10 @@ const (
 	ruleServerSSHWebDB     = "port-server-ssh-web-db"
 	ruleServerWindowsFP    = "fp-server-windows"
 	ruleWorkstationWindows = "fp-workstation-windows"
-	ruleWorkstationLinux   = "fp-workstation-linux"
+	ruleServerUnixSSH      = "fp-server-unix-ssh"
+	ruleAppleMacOS         = "fp-apple-macos"
+	ruleAppleIOS           = "fp-apple-ios"
+	ruleAppleDevice        = "fp-apple-device"
 	rulePrinterPorts       = "port-printer-ports"
 	ruleNoMatch            = "port-no-match"
 
@@ -67,6 +71,14 @@ const (
 	portIPP       = 631
 	portJetDirect = 9100
 
+	// Apple device ports. Kerberos (88) is the macOS file-sharing/Back-to-My-Mac
+	// KDC; 5000/7000 are the AirPlay receiver ports macOS (Monterey+) opens;
+	// 62078 is the iOS/iPadOS lockdownd sync port.
+	portKerberos    = 88
+	portAirPlay5000 = 5000
+	portAirPlay7000 = 7000
+	portIOSLockdown = 62078
+
 	// classifySource labels every Phase-4 verdict so a later higher-fidelity stage
 	// knows the value is overridable (D-08).
 	classifySource = "port-banner-v1"
@@ -84,8 +96,8 @@ const (
 )
 
 // dbPorts are the database service ports: a host offering one alongside SSH and a
-// web port reads as a server (Rule 4), while an SSH-only Linux host with a DB is
-// deliberately NOT a workstation (Rule 7 excludes it).
+// web port reads as a server (Rule 4); Rule 7 (unix SSH server) excludes them so
+// Rule 4 stays the sole owner of the database-server case.
 var dbPorts = map[int]bool{3306: true, 5432: true, 1433: true, 27017: true}
 
 // printerPorts are the two well-known print-service ports: IPP (631) and HP
@@ -185,8 +197,10 @@ type verdict struct {
 	RuleName      string
 	Evidence      map[string]string
 	SecurityFlags []string
-	// OSHint is set only by the port-signature fallback. mergeVerdict writes it to
-	// the asset's os_fingerprint_hint when the asset has no OS information.
+	// OSHint is set by the Apple rule (macos/ios/apple), by a banner OS cue that
+	// names a specific family (linux/windows), or by the SMB/RDP port-signature
+	// fallback. mergeVerdict writes it to the asset's os_fingerprint_hint when the
+	// asset has no inventory OS and at most the coarse unix-like TTL bucket.
 	OSHint string
 }
 
@@ -235,7 +249,18 @@ func classify(in classifyInput) verdict {
 		vendor = strings.ToLower(*in.OUIVendor)
 	}
 
-	v.AssetType, v.Confidence, v.RuleName = applyRules(in, fp, vendor)
+	var appleHint string
+	v.AssetType, v.Confidence, v.RuleName, appleHint = applyRules(in, fp, vendor)
+	switch {
+	case appleHint != "":
+		// An Apple signal outranks both the TTL bucket and the SMB/RDP windows
+		// fallback: a Mac sharing files over SMB is still a Mac.
+		fp = appleHint
+		v.OSHint = appleHint
+	case v.OSHint == "" && (in.OSCue == osHintLinux || in.OSCue == osHintWindows):
+		// A banner that names a specific family refines the coarse TTL bucket.
+		v.OSHint = in.OSCue
+	}
 
 	v.Evidence[evidenceKeyPortSignature] = sig
 	if vendor != "" {
@@ -255,26 +280,30 @@ func classify(in classifyInput) verdict {
 	return v
 }
 
-// applyRules runs the eight rules in precedence order and returns the first match
-// (asset type, confidence, rule name), or the unknown fall-through.
-func applyRules(in classifyInput, fp, vendor string) (assetType string, confidence float64, ruleName string) {
+// applyRules runs the rules in precedence order and returns the first match (asset
+// type, confidence, rule name, and an Apple OS hint when the Apple rule fired), or
+// the unknown fall-through. Order: 0 banner product hint, 1 printer ports, 2
+// network vendor + SNMP/SSH, 3 IoT vendor, A Apple (macos/ios/device), 4
+// SSH+web+DB server, 5 Windows server fingerprint, 6 Windows workstation
+// (SMB+RDP), 7 unix SSH server.
+func applyRules(in classifyInput, fp, vendor string) (assetType string, confidence float64, ruleName, osHint string) {
 	// Rule 0 — banner-driven product hint (highest precedence): a banner we parsed
 	// into a product hint is the strongest Phase-4 signal, so it beats the port and
 	// vendor rules below.
 	if hv, ok := productHintVerdicts[in.ProductHint]; ok {
-		return hv.assetType, hv.confidence, ruleBannerHTTPPrefix + in.ProductHint
+		return hv.assetType, hv.confidence, ruleBannerHTTPPrefix + in.ProductHint, ""
 	}
 
 	// Rule 1 — printer ports: IPP or JetDirect open is a strong, direct signal.
 	if hasAnyPort(in.OpenPorts, printerPorts) {
-		return assetTypePrinter, 0.9, rulePrinterPorts
+		return assetTypePrinter, 0.9, rulePrinterPorts, ""
 	}
 
 	// Rule 2 — network vendor + management port: a networking-gear OUI paired with
 	// SNMP or SSH reads as infrastructure.
 	if (containsPort(in.OpenPorts, portSNMP) || containsPort(in.OpenPorts, portSSH)) &&
 		matchesVendor(vendor, networkVendors) {
-		return assetTypeNetwork, 0.85, ruleNetworkVendorSNMP
+		return assetTypeNetwork, 0.85, ruleNetworkVendorSNMP, ""
 	}
 
 	// Rule 3 — IoT vendor with a small footprint: an IoT/embedded OUI on a host
@@ -282,40 +311,81 @@ func applyRules(in classifyInput, fp, vendor string) (assetType string, confiden
 	// silicon is everywhere) is too weak on its own — require >=1 open port.
 	if matchesVendor(vendor, iotVendors) && len(in.OpenPorts) <= 4 {
 		if !matchesVendor(vendor, broadModuleVendors) || len(in.OpenPorts) >= 1 {
-			return assetTypeIoT, 0.8, ruleIoTVendor
+			return assetTypeIoT, 0.8, ruleIoTVendor, ""
 		}
+	}
+
+	// Rule A — Apple: placed before every server rule so a strong Apple signal can
+	// never yield "server". A Mac, iPhone or iPad answers TTL 64 like Linux and may
+	// expose SSH (Remote Login), so without this rule it read as a Linux host
+	// (review finding N1). Signals are the Apple OUI and the iOS lockdown port only
+	// — never the mDNS presence flag (Linux avahi answers mDNS too) or hostnames.
+	if t, c, r, h, ok := appleVerdict(in.OpenPorts, vendor); ok {
+		return t, c, r, h
 	}
 
 	// Rule 4 — server: SSH plus a web port plus a database port is a server stack.
 	if containsPort(in.OpenPorts, portSSH) &&
 		(containsPort(in.OpenPorts, portHTTP) || containsPort(in.OpenPorts, portHTTPS)) &&
 		hasAnyPort(in.OpenPorts, dbPorts) {
-		return assetTypeServer, 0.9, ruleServerSSHWebDB
+		return assetTypeServer, 0.9, ruleServerSSHWebDB, ""
 	}
 
 	// Rule 5 — Windows server fingerprint: largely dormant in Phase 4 (the coarse
 	// TTL/banner hint rarely carries "server"); it wakes up when a later stage
 	// supplies a real "windows server" fingerprint.
 	if strings.Contains(fp, "windows") && strings.Contains(fp, "server") {
-		return assetTypeServer, 0.85, ruleServerWindowsFP
+		return assetTypeServer, 0.85, ruleServerWindowsFP, ""
 	}
 
 	// Rule 6 — Windows workstation: a Windows fingerprint with SMB and RDP open.
 	if strings.Contains(fp, "windows") &&
 		containsPort(in.OpenPorts, portSMB) && containsPort(in.OpenPorts, portRDP) {
-		return assetTypeWorkstation, 0.8, ruleWorkstationWindows
+		return assetTypeWorkstation, 0.8, ruleWorkstationWindows, ""
 	}
 
-	// Rule 7 — Linux workstation: a Linux/Unix fingerprint with SSH open and no DB
-	// port (a DB would make it a server, not a workstation). Lowest confidence
-	// because SSH-on-Linux is the weakest of the fingerprint signals.
+	// Rule 7 — unix SSH server: a Linux/Unix fingerprint with SSH open, neither SMB
+	// nor RDP, and no DB port. In corporate networks a headless Linux/Unix host
+	// exposing sshd is overwhelmingly a server (Moldasig 172.19.50.10/.15 were
+	// misreported as workstations by the retired linux-workstation rule). SMB/RDP
+	// is excluded because that mix is ambiguous (Samba vs. Windows); a DB port is
+	// excluded so Rule 4 stays the owner of the database-server case. A web port
+	// alongside SSH raises confidence.
 	if (strings.Contains(fp, "linux") || strings.Contains(fp, "unix")) &&
-		containsPort(in.OpenPorts, portSSH) && !hasAnyPort(in.OpenPorts, dbPorts) {
-		return assetTypeWorkstation, 0.6, ruleWorkstationLinux
+		containsPort(in.OpenPorts, portSSH) &&
+		!containsPort(in.OpenPorts, portSMB) && !containsPort(in.OpenPorts, portRDP) &&
+		!hasAnyPort(in.OpenPorts, dbPorts) {
+		if containsPort(in.OpenPorts, portHTTP) || containsPort(in.OpenPorts, portHTTPS) {
+			return assetTypeServer, 0.75, ruleServerUnixSSH, ""
+		}
+		return assetTypeServer, 0.6, ruleServerUnixSSH, ""
 	}
 
 	// Fall-through: no rule matched.
-	return assetTypeUnknown, 0.0, ruleNoMatch
+	return assetTypeUnknown, 0.0, ruleNoMatch, ""
+}
+
+// appleVerdict is Rule A. The Apple signal is an OUI vendor containing "apple"
+// (IEEE org name "Apple, Inc.") or the iOS lockdown port open. First match wins:
+// the lockdown port reads as iOS (unknown — the six-value enum has no phone/tablet
+// type, and "unknown" is more honest than workstation or iot); AirPlay plus
+// Kerberos/SMB reads as a macOS desktop (an Apple TV/HomePod has AirPlay but no
+// 88/445); any other Apple OUI host stays an unknown Apple device. ok is false when
+// there is no Apple signal.
+func appleVerdict(ports []int, vendor string) (assetType string, confidence float64, ruleName, osHint string, ok bool) {
+	appleOUI := strings.Contains(vendor, "apple")
+	if !appleOUI && !containsPort(ports, portIOSLockdown) {
+		return "", 0, "", "", false
+	}
+	if containsPort(ports, portIOSLockdown) {
+		return assetTypeUnknown, 0.5, ruleAppleIOS, osHintIOS, true
+	}
+	airPlay := containsPort(ports, portAirPlay5000) || containsPort(ports, portAirPlay7000)
+	fileShare := containsPort(ports, portKerberos) || containsPort(ports, portSMB)
+	if airPlay && fileShare {
+		return assetTypeWorkstation, 0.6, ruleAppleMacOS, osHintMacOS, true
+	}
+	return assetTypeUnknown, 0.4, ruleAppleDevice, osHintApple, true
 }
 
 // osFingerprint builds the lowercased OS hint the fingerprint rules read, by
@@ -341,6 +411,18 @@ const discoveryOSTTLFamilyKey = "os_ttl_family"
 // osHintWindows is the os_fingerprint_hint value set by the port-signature
 // fallback, the same word the discovery stage writes for a Windows TTL family.
 const osHintWindows = "windows"
+
+// os_fingerprint_hint values the port stage may write. osHintUnixLike mirrors the
+// discovery TTL bucket word for TTL 64 (Linux, macOS, iOS and BSD all share it),
+// so it is the one discovery-written hint the port stage may refine; osHintLinux
+// comes only from a distro-tagged SSH banner; the Apple words come from Rule A.
+const (
+	osHintUnixLike = "unix-like"
+	osHintLinux    = "linux"
+	osHintMacOS    = "macos"
+	osHintIOS      = "ios"
+	osHintApple    = "apple"
+)
 
 // matchesVendor reports whether the lowercased OUI vendor contains any of the
 // lowercased substrings in list.
@@ -411,7 +493,11 @@ func mergeVerdict(a *payload.AssetItem, v verdict) {
 	c.Confidence = v.Confidence
 	c.RuleName = v.RuleName
 	a.AssetType = v.AssetType
-	if v.OSHint != "" && a.OSFingerprintHint == "" && a.OperatingSystem == "" {
+	// The port stage may refine the coarse unix-like TTL bucket, but never
+	// overwrites an inventory OS or any more specific hint already on the asset.
+	// Evidence os_ttl_family is never touched here.
+	if v.OSHint != "" && a.OperatingSystem == "" &&
+		(a.OSFingerprintHint == "" || a.OSFingerprintHint == osHintUnixLike) {
 		a.OSFingerprintHint = v.OSHint
 	}
 }
