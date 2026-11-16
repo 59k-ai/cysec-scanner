@@ -54,17 +54,26 @@ const (
 	evidenceValuePresent = "present"
 )
 
+// osFamilyUnixLike is the TTL bucket word for an initial TTL of 64. The
+// fingerprint stage's osfp family constant carries the SAME word so the
+// os_ttl_family evidence resolves onto its TTL slot.
+const osFamilyUnixLike = "unix-like"
+
 // ttlFamily maps a best-effort reply TTL onto a coarse OS family. The brackets
-// are the common initial-TTL defaults (≤64 linux/unix, ≤128 windows, ≤255
-// network device). The result is a LOW-CONFIDENCE hint only — a reply TTL is
-// attacker-spoofable (Pitfall 7) — and an absent (≤0) or out-of-range (>255)
-// TTL collapses to "" rather than crashing.
+// are the common initial-TTL defaults (≤64 unix-like, ≤128 windows, ≤255
+// network device). TTL 64 is the default for Linux, macOS, iOS/iPadOS, the BSDs
+// and most embedded stacks alike, so that bucket can only honestly claim
+// "unix-like" — naming it "linux" reported Mac Minis, iPhones and iPads as Linux
+// hosts (review finding N1). A later stage may refine it from a stronger signal
+// (a distro-tagged SSH banner, an Apple OUI). The result is a LOW-CONFIDENCE hint
+// only — a reply TTL is attacker-spoofable (Pitfall 7) — and an absent (≤0) or
+// out-of-range (>255) TTL collapses to "" rather than crashing.
 func ttlFamily(ttl int) string {
 	switch {
 	case ttl <= 0:
 		return ""
 	case ttl <= 64:
-		return "linux"
+		return osFamilyUnixLike
 	case ttl <= 128:
 		return "windows"
 	case ttl <= 255:

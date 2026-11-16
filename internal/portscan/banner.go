@@ -136,9 +136,17 @@ func parseServiceIdentity(port int, b bannerResult) (product, version *string) {
 	return nil, nil
 }
 
+// sshLinuxDistroCues are the lowercase distro tags whose presence in an SSH
+// identification string names Linux. OpenSSH appends a distro patch tag (e.g.
+// "Ubuntu-3ubuntu13.5", "Debian-2+deb12u3") only on distro builds; macOS, BSD and
+// upstream builds carry none, so a bare "SSH-2.0-OpenSSH_9.6" proves only a
+// unix-like host, never Linux specifically (review finding N1).
+var sshLinuxDistroCues = []string{"ubuntu", "debian", "centos", "red hat", "redhat", "fedora", "raspbian"}
+
 // bannerHints extracts a coarse product hint and an OS cue from a banner for the
-// classifier (D-10). An SSH identification string implies a unix-like host
-// ("linux" cue); an HTTP response is matched against a small substring map for a
+// classifier (D-10). An SSH identification string gives a "windows" cue when it
+// names Windows (OpenSSH_for_Windows), a "linux" cue only when it names a Linux
+// distro (sshLinuxDistroCues), and otherwise a "unix-like" cue; an HTTP response is matched against a small substring map for a
 // device product hint (router/openwrt/camera/nas/media/echo/printer) and an
 // IIS/Microsoft Server header gives a "windows" cue. Both are empty when nothing
 // matches. Like parseServiceIdentity these are low-confidence cues only — the
@@ -149,11 +157,19 @@ func bannerHints(port int, b bannerResult) (productHint string, osCue string) {
 	if text == "" {
 		return "", ""
 	}
-	if strings.HasPrefix(text, "SSH-2.0-") {
-		// An SSH daemon (OpenSSH and friends) implies a unix-like operating system.
-		return "", "linux"
-	}
 	lower := strings.ToLower(text)
+	if strings.HasPrefix(text, "SSH-2.0-") {
+		// Windows first: "OpenSSH_for_Windows" must never fall into the unix bucket.
+		if strings.Contains(lower, "for_windows") || strings.Contains(lower, "windows") {
+			return "", "windows"
+		}
+		for _, cue := range sshLinuxDistroCues {
+			if strings.Contains(lower, cue) {
+				return "", "linux"
+			}
+		}
+		return "", "unix-like"
+	}
 	switch {
 	case strings.Contains(lower, "routeros"):
 		productHint = "router"

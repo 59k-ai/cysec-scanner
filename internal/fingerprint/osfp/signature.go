@@ -26,15 +26,20 @@ package osfp
 // recorded into scan_metadata on every run (FPRINT-04). Bump it whenever the
 // DefaultSignatures table changes so a scan's OS guesses stay reproducible
 // against a known signature set.
-const OSSignatureDBVersion = "osfp-v1-2026-10-19"
+const OSSignatureDBVersion = "osfp-v1-2026-11-16"
 
 // OS family labels. These mirror the coarse families the discovery TTL bucketing
 // produces (see ttlFamily) so a reply-TTL family resolves straight onto a
-// signature without a second mapping layer.
+// signature without a second mapping layer. The TTL-64 family is "unix-like", not
+// "linux": Linux, macOS, iOS and the BSDs all default to 64, so the word must
+// match discovery's honest bucket or the TTL slot silently drops (review N1).
 const (
-	familyLinux   = "linux"
-	familyWindows = "windows"
-	familyNetwork = "network-device"
+	familyUnixLike = "unix-like"
+	familyWindows  = "windows"
+	familyNetwork  = "network-device"
+	// familyLegacyLinux is the TTL-64 word older discovery output carried; it is
+	// accepted by TTLForFamily only, never emitted.
+	familyLegacyLinux = "linux"
 )
 
 // OSSignature is one self-authored signature with four observable slots. Only
@@ -102,7 +107,7 @@ func DefaultSignatures() []OSSignature {
 	return []OSSignature{
 		{
 			Label:      "Linux / Unix",
-			OSFamily:   familyLinux,
+			OSFamily:   familyUnixLike,
 			InitialTTL: []int{64},
 			BannerCue:  []string{"linux", "ubuntu", "debian", "centos", "red hat", "redhat", "fedora", "unix"},
 			Weight:     1.0,
@@ -125,7 +130,7 @@ func DefaultSignatures() []OSSignature {
 }
 
 // ttlFamily maps a reply TTL onto a coarse OS family using the SAME public
-// initial-TTL brackets the discovery stage uses (<=0 none, <=64 linux, <=128
+// initial-TTL brackets the discovery stage uses (<=0 none, <=64 unix-like, <=128
 // windows, <=255 network device, >255 none). It is re-expressed here (not
 // imported) because the discovery helper is unexported; the boundary values are
 // identical by design so a reply-TTL family resolves consistently across stages.
@@ -136,7 +141,7 @@ func ttlFamily(ttl int) string {
 	case ttl <= 0:
 		return ""
 	case ttl <= 64:
-		return familyLinux
+		return familyUnixLike
 	case ttl <= 128:
 		return familyWindows
 	case ttl <= 255:
@@ -150,10 +155,11 @@ func ttlFamily(ttl int) string {
 // unprivileged stage (which has only the discovery family string, not the raw
 // reply TTL) can supply a representative TTL to the TTL slot. It is the inverse of
 // ttlFamily over the public defaults; an unknown family yields 0 ("no TTL
-// signal").
+// signal"). The legacy "linux" word also maps to 64 so evidence written by an
+// older discovery stage still fills the TTL slot instead of silently dropping it.
 func TTLForFamily(family string) int {
 	switch family {
-	case familyLinux:
+	case familyUnixLike, familyLegacyLinux:
 		return 64
 	case familyWindows:
 		return 128
