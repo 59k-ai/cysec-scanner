@@ -436,7 +436,7 @@ func TestOSGuessTTLAloneIsUnknown(t *testing.T) {
 	t.Parallel()
 
 	st := seedAssetWithEvidence(t,
-		map[string]string{"os_ttl_family": "linux"},
+		map[string]string{"os_ttl_family": "unix-like"},
 		payload.ServiceItem{Port: 22, Protocol: "tcp", ServiceName: "ssh"},
 		"", // no banner
 	)
@@ -445,6 +445,36 @@ func TestOSGuessTTLAloneIsUnknown(t *testing.T) {
 	if a.OSGuess != nil || a.OSGuessSource != nil || a.OSGuessConfidence != nil {
 		t.Errorf("TTL-alone must leave os_guess trio null: guess=%v source=%v conf=%v",
 			a.OSGuess, a.OSGuessSource, a.OSGuessConfidence)
+	}
+	assertStrictValid(t, pl)
+}
+
+// TestOSGuessUnixLikeFamilyCorroboratesBanner proves the renamed discovery TTL
+// family ("unix-like", review finding N1) still resolves onto the osfp TTL slot:
+// a unix-like TTL family plus a unix-like banner cue yields the "Linux / Unix"
+// guess with confidence ABOVE the banner-only weight, so the TTL slot did not
+// silently drop after the rename.
+func TestOSGuessUnixLikeFamilyCorroboratesBanner(t *testing.T) {
+	t.Parallel()
+
+	st := seedAssetWithEvidence(t,
+		map[string]string{"os_ttl_family": "unix-like", "banner_os_cue": "unix-like"},
+		payload.ServiceItem{Port: 22, Protocol: "tcp", ServiceName: "ssh"},
+		"",
+	)
+	pl := runStage(t, st)
+	a := pl.Assets[0]
+	if got := deref(a.OSGuess); got != "Linux / Unix" {
+		t.Errorf("os_guess = %q, want Linux / Unix", got)
+	}
+	if got := deref(a.OSGuessSource); got != "osfp-banner-v1" {
+		t.Errorf("os_guess_source = %q, want osfp-banner-v1", got)
+	}
+	if a.OSGuessConfidence == nil {
+		t.Fatalf("os_guess_confidence = nil, want > %v", confidenceCut)
+	}
+	if *a.OSGuessConfidence <= confidenceCut {
+		t.Errorf("os_guess_confidence = %v, want > %v (TTL slot must corroborate the banner)", *a.OSGuessConfidence, confidenceCut)
 	}
 	assertStrictValid(t, pl)
 }

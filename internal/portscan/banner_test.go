@@ -291,7 +291,15 @@ func TestBannerHints(t *testing.T) {
 		wantProduct string
 		wantOS      string
 	}{
-		{"openssh implies linux", "SSH-2.0-OpenSSH_9.6", "", "linux"},
+		{"bare openssh is only unix-like", "SSH-2.0-OpenSSH_9.6", "", "unix-like"},
+		{"macos-style openssh is unix-like", "SSH-2.0-OpenSSH_9.8", "", "unix-like"},
+		{"ubuntu openssh names linux", "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5", "", "linux"},
+		{"debian openssh names linux", "SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u3", "", "linux"},
+		{"raspbian openssh names linux", "SSH-2.0-OpenSSH_8.0 Raspbian-1", "", "linux"},
+		{"centos openssh names linux", "SSH-2.0-OpenSSH_7.4 CentOS", "", "linux"},
+		{"red hat openssh names linux", "SSH-2.0-OpenSSH_8.0 Red Hat", "", "linux"},
+		{"fedora openssh names linux", "SSH-2.0-OpenSSH_9.3 FEDORA", "", "linux"},
+		{"openssh for windows names windows", "SSH-2.0-OpenSSH_for_Windows_8.1", "", "windows"},
 		{"routeros implies a router", "HTTP/1.0 200 OK\r\nServer: Mikrotik RouterOS\r\n", "router", ""},
 		{"openwrt product hint", "<html><title>OpenWrt</title></html>", "openwrt", ""},
 		{"dvr implies a camera", "var g_dvr = 1; dvr console", "camera", ""},

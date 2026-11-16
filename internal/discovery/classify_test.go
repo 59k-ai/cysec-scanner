@@ -12,7 +12,7 @@ import (
 // TestClassifyEvidence proves the DISC-05 evidence assembly: a host whose
 // internal record carries a known MAC vendor, the mDNS resolver-hit flag, and a
 // reply TTL of 64 yields a non-nil classification_evidence whose evidence map
-// collects a mac_vendor entry, an mdns entry, and an os family of "linux"; the
+// collects a mac_vendor entry, an mdns entry, and an os family of "unix-like"; the
 // asset_type is "unknown" on BOTH the asset and the classification (D-02); and
 // security_flags is a non-nil empty slice. NetBIOS did not answer, so no netbios
 // entry appears.
@@ -32,8 +32,8 @@ func TestClassifyEvidence(t *testing.T) {
 	if got := c.Evidence[evidenceKeyMACVendor]; got != vendor {
 		t.Errorf("evidence[%q] = %q, want %q", evidenceKeyMACVendor, got, vendor)
 	}
-	if got := c.Evidence[evidenceKeyOSTTLFamily]; got != "linux" {
-		t.Errorf("evidence[%q] = %q, want linux", evidenceKeyOSTTLFamily, got)
+	if got := c.Evidence[evidenceKeyOSTTLFamily]; got != "unix-like" {
+		t.Errorf("evidence[%q] = %q, want unix-like", evidenceKeyOSTTLFamily, got)
 	}
 	if got, ok := c.Evidence[evidenceKeyMDNS]; !ok || got != evidenceValuePresent {
 		t.Errorf("evidence[%q] = %q (present=%v), want %q present", evidenceKeyMDNS, got, ok, evidenceValuePresent)
@@ -53,8 +53,8 @@ func TestClassifyEvidence(t *testing.T) {
 	if len(c.SecurityFlags) != 0 {
 		t.Errorf("security_flags = %v, want empty", c.SecurityFlags)
 	}
-	if a.OSFingerprintHint != "linux" {
-		t.Errorf("os_fingerprint_hint = %q, want linux", a.OSFingerprintHint)
+	if a.OSFingerprintHint != "unix-like" {
+		t.Errorf("os_fingerprint_hint = %q, want unix-like (TTL 64 cannot tell Linux from macOS/iOS/BSD)", a.OSFingerprintHint)
 	}
 	if a.Managed || a.InternetFacing {
 		t.Errorf("managed=%v internet_facing=%v, want both false (cloud owns exposure truth)", a.Managed, a.InternetFacing)
@@ -90,8 +90,8 @@ func TestTTLFamily(t *testing.T) {
 	}{
 		{0, ""},    // absent (zero value)
 		{-1, ""},   // garbage
-		{1, "linux"},
-		{64, "linux"},
+		{1, "unix-like"},
+		{64, "unix-like"},
 		{65, "windows"},
 		{128, "windows"},
 		{129, "network-device"},
@@ -123,8 +123,8 @@ func TestClassifyPreservesRoutedL2Segment(t *testing.T) {
 	if got := a.Classification.Evidence[evidenceKeyL2Segment]; got != evidenceValueRouted {
 		t.Errorf("evidence[%q] = %q after merge, want %q preserved", evidenceKeyL2Segment, got, evidenceValueRouted)
 	}
-	if got := a.Classification.Evidence[evidenceKeyOSTTLFamily]; got != "linux" {
-		t.Errorf("evidence[%q] = %q, want linux (TTL 54) merged alongside l2_segment", evidenceKeyOSTTLFamily, got)
+	if got := a.Classification.Evidence[evidenceKeyOSTTLFamily]; got != "unix-like" {
+		t.Errorf("evidence[%q] = %q, want unix-like (TTL 54) merged alongside l2_segment", evidenceKeyOSTTLFamily, got)
 	}
 	if a.AssetType != assetTypeUnknown {
 		t.Errorf("routed asset_type = %q, want %q (D-02)", a.AssetType, assetTypeUnknown)

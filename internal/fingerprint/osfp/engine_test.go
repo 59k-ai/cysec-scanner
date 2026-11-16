@@ -27,8 +27,8 @@ func TestTTLFamilyBoundaries(t *testing.T) {
 	}{
 		{-1, ""},
 		{0, ""},
-		{1, familyLinux},
-		{64, familyLinux},
+		{1, familyUnixLike},
+		{64, familyUnixLike},
 		{65, familyWindows},
 		{128, familyWindows},
 		{129, familyNetwork},
@@ -39,6 +39,32 @@ func TestTTLFamilyBoundaries(t *testing.T) {
 	for _, c := range cases {
 		if got := ttlFamily(c.ttl); got != c.want {
 			t.Errorf("ttlFamily(%d) = %q, want %q", c.ttl, got, c.want)
+		}
+	}
+	if familyUnixLike != "unix-like" {
+		t.Errorf("familyUnixLike = %q, want unix-like (must equal the discovery TTL bucket word)", familyUnixLike)
+	}
+}
+
+// TestTTLForFamily pins the family -> representative initial-TTL inverse. The
+// discovery bucket word "unix-like" and the legacy "linux" both map to 64 so an
+// older evidence value never silently drops the TTL slot.
+func TestTTLForFamily(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		family string
+		want   int
+	}{
+		{"unix-like", 64},
+		{"linux", 64},
+		{"windows", 128},
+		{"network-device", 255},
+		{"", 0},
+		{"macos", 0},
+	}
+	for _, c := range cases {
+		if got := TTLForFamily(c.family); got != c.want {
+			t.Errorf("TTLForFamily(%q) = %d, want %d", c.family, got, c.want)
 		}
 	}
 }
@@ -134,7 +160,7 @@ func TestOSGuessPhase7SlotsEmpty(t *testing.T) {
 	// supplies it lifts confidence through the same scorer, no panic.
 	sigs := []OSSignature{{
 		Label:      "Linux / Unix",
-		OSFamily:   familyLinux,
+		OSFamily:   familyUnixLike,
 		InitialTTL: []int{64},
 		TCPWindow:  []int{64240},
 		Weight:     1.0,
