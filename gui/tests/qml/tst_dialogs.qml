@@ -183,6 +183,35 @@ TestCase {
             verify(!/cysec[.]?watch/i.test(t), t)
     }
 
+    function licenceTexts(dlg) {
+        const out = []
+        for (let i = 0; ; ++i) {
+            const line = findChild(dlg.contentItem, "licenceLine_" + i)
+            if (!line)
+                break
+            out.push(line.text)
+        }
+        return out
+    }
+
+    function test_aboutDefaultsUnchanged() {
+        const dlg = openAbout({})
+        compare(dlg.title, "About Cysec Scanner")
+        compare(dlg.header.text, "About Cysec Scanner")
+        compare(licenceTexts(dlg), ["Cysec Scanner: Apache-2.0", "Qt: LGPLv3 (dynamically linked)",
+                                    "IEEE OUI data: MAC vendor names derived from the IEEE registry",
+                                    "IBM Plex fonts: SIL Open Font License 1.1"])
+        compare(findChild(dlg.contentItem, "copyrightLine").text, "© 2026 59k GmbH")
+    }
+
+    function test_aboutConsumerOverrides() {
+        const dlg = openAbout({ title: "About X", licenceLines: ["a", "<b>b</b>"] })
+        compare(dlg.header.text, "About X")
+        compare(licenceTexts(dlg), ["a", "<b>b</b>"])
+        const second = findChild(dlg.contentItem, "licenceLine_1")
+        compare(second.textFormat, Text.PlainText)
+    }
+
     function test_aboutNoticesViewer() {
         const dlg = openAbout({ guiVersion: "v0.1.0", noticesText: "Notice <b>A</b>" })
         const scroll = findChild(dlg.contentItem, "noticesScroll")

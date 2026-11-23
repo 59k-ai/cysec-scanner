@@ -258,6 +258,38 @@ class VocabularyTests(TempTree):
         self.assertEqual(code, 1, out)
         self.assertIn("x_de.ts", out)
 
+    def test_romanian_banned_word_in_translation_fails(self):
+        self.write("i18n/x_ro.ts", ts_doc("""
+            <message>
+                <source>Settings</source>
+                <translation>Conectare la cont</translation>
+            </message>
+        """, language="ro"))
+        code, out = self.vocab()
+        self.assertEqual(code, 1, out)
+        self.assertIn("x_ro.ts", out)
+
+    def test_romanian_inflected_banned_word_fails(self):
+        self.write("i18n/x_ro.ts", ts_doc("""
+            <message>
+                <source>Hosts</source>
+                <translation>Sincronizarea gazdelor</translation>
+            </message>
+        """, language="ro"))
+        code, out = self.vocab()
+        self.assertEqual(code, 1, out)
+
+    def test_romanian_list_does_not_apply_to_other_catalogues(self):
+        # The Romanian list applies to *_ro.ts only.
+        self.write("i18n/x_de.ts", ts_doc("""
+            <message>
+                <source>Hosts</source>
+                <translation>cont</translation>
+            </message>
+        """))
+        code, out = self.vocab()
+        self.assertEqual(code, 0, out)
+
     def test_banned_word_in_numerusform_fails(self):
         self.write("i18n/x_en.ts", ts_doc("""
             <message numerus="yes">
