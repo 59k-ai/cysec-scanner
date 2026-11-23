@@ -44,11 +44,18 @@ LanguageController *LanguageController::create(QQmlEngine *qml, QJSEngine *js)
     controller->m_engine = qml;
 
     // Persisted choice first (D-28), else the system locale: any German
-    // variant selects German, everything else English.
+    // variant selects German, any Romanian variant Romanian, everything else
+    // English.
     QString code = QSettings().value(kSettingsKey).toString();
-    if (!controller->isSupported(code))
-        code = QLocale().name().startsWith(QLatin1String("de")) ? QStringLiteral("de")
-                                                                : QStringLiteral("en");
+    if (!controller->isSupported(code)) {
+        const QString system = QLocale().name();
+        if (system.startsWith(QLatin1String("de")))
+            code = QStringLiteral("de");
+        else if (system.startsWith(QLatin1String("ro")))
+            code = QStringLiteral("ro");
+        else
+            code = QStringLiteral("en");
+    }
     // Not persisted: a system-derived default keeps following the system
     // until the user picks a language.
     controller->apply(code, false);
@@ -72,6 +79,8 @@ QVariantList LanguageController::availableLanguages() const
                     {QStringLiteral("name"), QStringLiteral("English")}},
         QVariantMap{{QStringLiteral("code"), QStringLiteral("de")},
                     {QStringLiteral("name"), QStringLiteral("Deutsch")}},
+        QVariantMap{{QStringLiteral("code"), QStringLiteral("ro")},
+                    {QStringLiteral("name"), QStringLiteral("Română")}},
     };
 }
 

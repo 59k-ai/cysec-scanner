@@ -13,7 +13,8 @@ class QJSEngine;
 class QQmlEngine;
 class QTranslator;
 
-// LanguageController switches the UI language at runtime (English, German).
+// LanguageController switches the UI language at runtime (English, German,
+// Romanian).
 // It installs the translator and retranslates the QML engine; revision
 // changes with every switch so locale-formatted bindings (counts, times)
 // re-evaluate even where no qsTr string is involved.
@@ -27,7 +28,8 @@ class LanguageController : public QObject
 
     Q_PROPERTY(QString language READ language NOTIFY languageChanged FINAL)
     Q_PROPERTY(int revision READ revision NOTIFY languageChanged FINAL)
-    // [{code:"en",name:"English"},{code:"de",name:"Deutsch"}]
+    // [{code:"en",name:"English"},{code:"de",name:"Deutsch"},{code:"ro",name:"Română"}]
+    // (English, German, Romanian)
     Q_PROPERTY(QVariantList availableLanguages READ availableLanguages CONSTANT FINAL)
 
 public:

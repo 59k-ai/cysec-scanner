@@ -21,7 +21,7 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS
 
 qt_standard_project_setup(REQUIRES 6.8
     I18N_SOURCE_LANGUAGE en
-    I18N_TRANSLATED_LANGUAGES de)
+    I18N_TRANSLATED_LANGUAGES de ro)
 
 # Every QML module lands under one import root that mirrors its URI, so
 # qmllint, qmlls and the tests resolve Cysec.Scanner.Ui without extra paths.
