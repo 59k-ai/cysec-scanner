@@ -231,7 +231,7 @@ TestCase {
         verify(languageMenu)
         compare(languageMenu.title, "Language")
         compare(languageMenu.count, LanguageController.availableLanguages.length)
-        compare(languageMenu.count, 2)
+        compare(languageMenu.count, 3)
         const en = languageMenu.itemAt(0)
         const de = languageMenu.itemAt(1)
         compare(en.text, "English")

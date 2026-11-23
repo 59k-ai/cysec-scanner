@@ -93,6 +93,14 @@ private slots:
         QCOMPARE(c->language(), QStringLiteral("de"));
     }
 
+    void defaultsFromRomanianSystemLocale()
+    {
+        QLocale::setDefault(QLocale(QStringLiteral("ro_RO")));
+        QQmlEngine engine;
+        auto c = make(&engine);
+        QCOMPARE(c->language(), QStringLiteral("ro"));
+    }
+
     void defaultsToEnglishForOtherLocales()
     {
         QLocale::setDefault(QLocale(QStringLiteral("fr_FR")));
@@ -181,19 +189,40 @@ private slots:
         // carries the plural forms of the English source strings.
         QVERIFY(QFile::exists(QStringLiteral(":/i18n/cysec_scanner_ui_en.qm")));
         QVERIFY(QFile::exists(QStringLiteral(":/i18n/cysec_scanner_ui_de.qm")));
+        QVERIFY(QFile::exists(QStringLiteral(":/i18n/cysec_scanner_ui_ro.qm")));
+    }
+
+    void romanianSwitchPersistsAndTranslates()
+    {
+        QQmlEngine engine;
+        auto c = make(&engine);
+        QCOMPARE(c->language(), QStringLiteral("en"));
+
+        c->setLanguage(QStringLiteral("ro"));
+        QCOMPARE(c->language(), QStringLiteral("ro"));
+        QCOMPARE(QSettings().value(QStringLiteral("ui/language")).toString(), QStringLiteral("ro"));
+        // The shipped Romanian catalogue is installed.
+        QCOMPARE(QCoreApplication::translate("ScannerView", "No hosts found"),
+                 QStringLiteral("Nu s-au g\u0103sit gazde"));
+
+        c->setLanguage(QStringLiteral("xx"));
+        QCOMPARE(c->language(), QStringLiteral("ro"));
     }
 
     void availableLanguagesContract()
     {
         LanguageController c(nullptr);
         const QVariantList langs = c.availableLanguages();
-        QCOMPARE(langs.size(), 2);
+        QCOMPARE(langs.size(), 3);
         QCOMPARE(langs.at(0).toMap().value(QStringLiteral("code")).toString(), QStringLiteral("en"));
         QCOMPARE(langs.at(0).toMap().value(QStringLiteral("name")).toString(),
                  QStringLiteral("English"));
         QCOMPARE(langs.at(1).toMap().value(QStringLiteral("code")).toString(), QStringLiteral("de"));
         QCOMPARE(langs.at(1).toMap().value(QStringLiteral("name")).toString(),
                  QStringLiteral("Deutsch"));
+        QCOMPARE(langs.at(2).toMap().value(QStringLiteral("code")).toString(), QStringLiteral("ro"));
+        QCOMPARE(langs.at(2).toMap().value(QStringLiteral("name")).toString(),
+                 QStringLiteral("Rom\u00e2n\u0103"));
     }
 
     void formatterFollowsLanguage()

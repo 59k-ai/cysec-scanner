@@ -75,6 +75,18 @@ TestCase {
         compare(settingsButton.text, "Settings")
     }
 
+    function test_languageMenuListsThreeLanguages() {
+        const languageMenu = openLanguageMenu()
+        compare(languageMenu.count, 3)
+        const ro = itemFor(languageMenu, "ro")
+        verify(ro, "Romanian entry")
+        compare(ro.text, "Română")
+        ro.triggered()
+        compare(LanguageController.language, "ro")
+        verify(ro.checked)
+        compare(settingsButton.text, "Setări")
+    }
+
     function test_reselectingCurrentLanguageIsNoOp() {
         const revisionBefore = LanguageController.revision
         const languageMenu = openLanguageMenu()
