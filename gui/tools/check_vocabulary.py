@@ -12,7 +12,8 @@
 # (connecting a device to a remote service, signing in, remote storage,
 # grading). The gate applies an English and a German ban list,
 # case-insensitive and on word boundaries ("Repair" does not match "pair"),
-# to exactly the user-visible text:
+# to exactly the user-visible text below; a Romanian list with the same
+# concepts applies on top to the text of *_ro.ts catalogues:
 #   - string literals passed to qsTr / qsTranslate / QT_TR_NOOP /
 #     QT_TRANSLATE_NOOP in ROOT/**/*.qml, *.cpp and *.h (identifiers and
 #     comments are not scanned, so a property called "tokenizer" is fine);
@@ -54,6 +55,19 @@ DE_TERMS = [
     "Dashboard", "Lizenzschlüssel", "Abonnement", "NIS2", "Compliance",
     "Bewertung", "Punktzahl", "Urteil",
 ]
+# Romanian inflects heavily. RO_STEMS match any word that starts with the
+# stem, so they must stay long and unambiguous; RO_TERMS match whole words
+# only (so "cont" does not match "control" or "conținut").
+RO_STEMS = [
+    "împereche", "sincroniz", "autentific", "abonament", "chiriaș",
+]
+RO_TERMS = [
+    "cloud", "tenant", "token", "tokenul", "tokenuri", "cheie API", "cheia API",
+    "cont", "contul", "conturi", "conturile", "upload", "dashboard",
+    "tablou de bord", "cheie de licență", "cheia de licență", "NIS2",
+    "conformitate", "conformitatea", "scor", "scorul", "punctaj", "punctajul",
+    "verdict", "verdictul", "evaluare", "evaluarea",
+]
 EN_SUFFIX = r"(?:s|es|d|ed|ing)?"
 
 PLAIN_FORMAT = re.compile(r"\btextFormat\s*:\s*(?:Text|TextEdit)\.PlainText\b")
@@ -77,6 +91,14 @@ BANNED = re.compile(
     "|".join(
         [_term_pattern(t, True) for t in EN_TERMS]
         + [_term_pattern(t, False) for t in DE_TERMS]
+    ),
+    re.IGNORECASE,
+)
+
+BANNED_RO = re.compile(
+    "|".join(
+        [r"\b" + re.escape(stem) + r"\w*" for stem in RO_STEMS]
+        + [_term_pattern(t, False) for t in RO_TERMS]
     ),
     re.IGNORECASE,
 )
@@ -167,9 +189,12 @@ def _string_literals(src, start):
 def scan_vocabulary(root):
     problems = []
 
-    def report(path, line, text):
-        for m in BANNED.finditer(text):
-            problems.append(f"{path}:{line}: banned term {m.group(0)!r} in {text.strip()!r}")
+    def report(path, line, text, extra=None):
+        for pattern in (BANNED, extra) if extra else (BANNED,):
+            for m in pattern.finditer(text):
+                problems.append(
+                    f"{path}:{line}: banned term {m.group(0)!r} in {text.strip()!r}"
+                )
 
     for path in walk(root, SOURCE_EXTS):
         src = read(path)
@@ -184,11 +209,12 @@ def scan_vocabulary(root):
         except ET.ParseError as exc:
             problems.append(f"{path}: unreadable: {exc}")
             continue
+        extra = BANNED_RO if path.endswith("_ro.ts") else None
         for tag in ("source", "translation", "numerusform"):
             for el in tree.getroot().iter(tag):
                 # A plural <translation> holds only whitespace as its own
                 # text; each <numerusform> is visited on its own.
-                report(path, 0, el.text or "")
+                report(path, 0, el.text or "", extra)
 
     for path in walk(root, (".md",)):
         for number, line in enumerate(read(path).splitlines(), start=1):

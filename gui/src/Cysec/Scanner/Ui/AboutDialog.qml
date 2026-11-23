@@ -21,6 +21,14 @@ Dialog {
     property string engineVersion
     property string qtVersion
     property string noticesText
+    // Licence rows, shown in order as plain text. A consumer that bundles
+    // more components replaces the list; the copyright line stays.
+    property var licenceLines: [
+        qsTr("Cysec Scanner: Apache-2.0"),
+        qsTr("Qt: LGPLv3 (dynamically linked)"),
+        qsTr("IEEE OUI data: MAC vendor names derived from the IEEE registry"),
+        qsTr("IBM Plex fonts: SIL Open Font License 1.1"),
+    ]
 
     // Resource alias set up by the module CMakeLists (plan 13-07).
     readonly property url noticesUrl: "qrc:/qt/qml/Cysec/Scanner/Ui/THIRD_PARTY_NOTICES.md"
@@ -49,6 +57,8 @@ Dialog {
     width: 480
     padding: Theme.spaceLg
     topPadding: Theme.spaceSm
+    // Dialog.title is a FINAL property, so it is assigned rather than
+    // redeclared; a consumer retitles the dialog by setting title.
     title: qsTr("About Cysec Scanner")
 
     onOpened: closeButton.forceActiveFocus(Qt.PopupFocusReason)
@@ -150,10 +160,15 @@ Dialog {
                 spacing: Theme.spaceXs
 
                 SectionTitle { text: qsTr("Licences") }
-                BodyLine { text: qsTr("Cysec Scanner: Apache-2.0") }
-                BodyLine { text: qsTr("Qt: LGPLv3 (dynamically linked)") }
-                BodyLine { text: qsTr("IEEE OUI data: MAC vendor names derived from the IEEE registry") }
-                BodyLine { text: qsTr("IBM Plex fonts: SIL Open Font License 1.1") }
+                Repeater {
+                    model: root.licenceLines
+                    delegate: BodyLine {
+                        required property var modelData
+                        required property int index
+                        objectName: "licenceLine_" + index
+                        text: String(modelData)
+                    }
+                }
                 BodyLine {
                     objectName: "copyrightLine"
                     Layout.topMargin: Theme.spaceSm
