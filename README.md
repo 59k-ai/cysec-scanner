@@ -86,6 +86,23 @@ Keep `cysec-scanner.exe` in the same folder, because the GUI only looks for the
 engine next to itself. The zip includes the Qt and Visual C++ runtimes, so
 nothing else has to be installed.
 
+## Install on macOS
+
+Download `cysec-scanner-<version>-macos-universal.dmg` from the
+[GitHub Releases page](https://github.com/59k-ai/cysec-scanner/releases) and
+verify it with `shasum -a 256 -c SHA256SUMS --ignore-missing`. The app runs
+natively on both Apple silicon and Intel Macs and needs macOS 13 or later.
+Open the dmg and drag **Cysec Scanner** to **Applications**. The app includes
+the scan engine (`Contents/MacOS/cysec-scanner`) and the Qt runtime, so nothing
+else has to be installed.
+
+The app is not signed with an Apple Developer ID or notarised yet, so macOS
+blocks the first launch. Open it once, then go to System Settings → Privacy &
+Security, find "Cysec Scanner was blocked" and click **Open Anyway**. When the
+first scan starts, allow **Local Network** access; without it, macOS hides
+every other host on the LAN. For MAC addresses, see
+[MAC addresses on macOS](#mac-addresses-on-macos).
+
 ## License
 
 Apache-2.0. See [`LICENSE`](./LICENSE). The Apache `NOTICE` obligation is
